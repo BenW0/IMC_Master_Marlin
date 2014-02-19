@@ -155,6 +155,10 @@
 // M400 - Finish all moves
 // M401 - Lower z-probe if present
 // M402 - Raise z-probe if present
+// M450 - Send Intelligent Motor Control Initialization packet. X, Y, Z, A, B, C - axis/axes to send
+// M451 - Send IMC status request packet. X, Y, Z, A, B, C - axis/axes to send
+// M452 - Send IMC home packet. X, Y, Z, A, B, C - axis/axes to send
+// M453 - Send IMC queue move packet. M: motor ID, 
 // M500 - stores paramters in EEPROM
 // M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily).
 // M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to.
@@ -470,6 +474,12 @@ void setup()
 
   // loads data from EEPROM if available else uses defaults (and resets step acceleration rate)
   Config_RetrieveSettings();
+
+  #ifdef IMC_ENABLED
+    uint8_t imc_motors = imc_init();			// startup the I2C/IMC interface.
+	SERIAL_ECHO_PGM(MSG_IMC_STARTUP);
+	SERIAL_ECHO(imc_motors);
+  #endif
 
   tp_init();    // Initialize temperature loop
   plan_init();  // Initialize planner;
@@ -2233,6 +2243,7 @@ void process_commands()
       for(int8_t i=0; i < 3; i++)
       {
         if(code_seen(axis_codes[i])) add_homeing[i] = code_value();
+		//=== need to fix this
       }
       break;
     #ifdef DELTA

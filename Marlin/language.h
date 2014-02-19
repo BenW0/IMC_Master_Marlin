@@ -210,6 +210,9 @@
 	#define MSG_ERR_COLD_EXTRUDE_STOP " cold extrusion prevented"
 	#define MSG_ERR_LONG_EXTRUDE_STOP " too long extrusion prevented"
 
+    #define MSG_IMC_STARTUP "IMC Motors: "
+    #define MSG_IMC_INIT_ERROR "IMC error writing settings to axis "
+
 #endif
 
 

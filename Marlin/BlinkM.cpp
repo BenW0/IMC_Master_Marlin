@@ -15,7 +15,9 @@
 
 void SendColors(byte red, byte grn, byte blu)
 {
-  Wire.begin(); 
+  #ifndef IMC_ENABLED
+	Wire.begin(); 
+  #endif
   Wire.beginTransmission(0x09);
   Wire.write('o');                    //to disable ongoing script, only needs to be used once
   Wire.write('n');

@@ -418,6 +418,23 @@ const bool Z_MAX_ENDSTOP_INVERTING = true; // set to true to invert the logic of
 //=============================Additional Features===========================
 //===========================================================================
 
+// Intelligent Motor Controller Network (IMC)
+// This moves the motor controllers to a set of daughter microcontrollers freeing each processor up to do its
+// job better, or use a more serious motor driver (or a different kind of motor), or run more than 4 motors.
+#define IMC_ENABLED
+
+#ifdef IMC_ENABLED
+  // This field indicates the maximum number of axes, alwasy in the order [X, Y, Z, A, B, ...]. 
+  // If you aren't using Z, but are using A, MAX_MOTORS still needs to be 4
+  #define IMC_MAX_MOTORS		NUM_AXIS	
+  #define IMC_HOST_REVISION	0x0001		// increment each time the protocol or master-slave interface code changes substantially.
+  
+  // i2c address of the first (X) motor axis. Each additional axis increases this number by 1. Change this number if other i2c addresses
+  // in your setup conflict. Attempts will be made to contact all addresses in the range IMC_I2C_BASE_ADDRESS to IMC_I2C_BASE_ADDRESS + IMC_MAX_MOTORS
+  #define IMC_I2C_BASE_ADDRESS	1		
+  
+#endif
+
 // EEPROM
 // the microcontroller can store settings in the EEPROM, e.g. max velocity...
 // M500 - stores paramters in EEPROM

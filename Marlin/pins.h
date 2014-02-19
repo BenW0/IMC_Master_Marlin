@@ -7,7 +7,7 @@
 #define Y_MS2_PIN -1
 #define Z_MS1_PIN -1
 #define Z_MS2_PIN -1
-#define E0_MS1_PIN -1
+#define E0_MS1_PIN -1b
 #define E0_MS2_PIN -1
 #define E1_MS1_PIN -1
 #define E1_MS2_PIN -1
@@ -651,6 +651,13 @@
       #define LCD_PINS_D7 29
     #endif 
   #endif //ULTRA_LCD
+
+  // Intelligent Motor Controller over i2c interface (presently on RAMPS 1.3/1.4 only)
+  #if MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35
+    // i2c pins are globally defined with SCL and SDA; IMC just uses those names
+    // Pin to use for sync:
+	#define IMC_SYNC_PIN   16
+  #endif
 
 #else // RAMPS_V_1_1 or RAMPS_V_1_2 as default (MOTHERBOARD == 3)
 
