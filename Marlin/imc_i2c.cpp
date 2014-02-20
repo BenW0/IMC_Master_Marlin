@@ -6,8 +6,18 @@
 */
 
 #include <Wire.h>
+#include "imc_i2c.h"
 #include "marlin.h"
+#include "Configuration.h"
+#include "planner.h"
 #include "imc_i2c_message_structs.h"
+#include "language.h"
+#include "pins.h"
+
+#ifdef IMC_ENABLED
+
+// Global Variables===================================================================
+const imc_param_type imc_param_types[IMC_PARAM_COUNT] = IMC_PARAM_TYPES;
 
 // Local Variables ===================================================================
 bool slave_exists[IMC_MAX_MOTORS];		// is the slave connected?
@@ -31,6 +41,9 @@ uint8_t imc_init(void)
 	digitalWrite(SDA, 0);
 	digitalWrite(SCL, 0);
 
+	// configure the sync line to keep motion from happening until we're ready.
+	imc_sync_set();
+
 
 	// Query each of the slaves here and get queue depth, presence information
 	msg_initialize_t params = {IMC_HOST_REVISION, {0, 0, 0, 0, 0, 0}};
@@ -39,7 +52,7 @@ uint8_t imc_init(void)
 	uint8_t num_worked = 0;
 	for(i = 0; i < IMC_MAX_MOTORS; ++i)
 	{
-		if(IMC_RET_SUCCESS == imc_send_init_one(i, params, &resp, 5))
+		if(IMC_RET_SUCCESS == imc_send_init_one(i, &params, &resp, 5))
 		{
 			num_worked++;
 			slave_exists[i] = true;
@@ -92,12 +105,12 @@ uint8_t imc_init(void)
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, X_MIN_POS));
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, X_MAX_POS));
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, X_HOME_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)HOMING_FEEDRATE[i] * DEFAULT_AXIS_STEPS_PER_UNIG[i])));
+		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
 		if( IMC_RET_SUCCESS != ret )
 		{
 			SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
 			SERIAL_ECHO("X");
-			numworked--;
+			num_worked--;
 			slave_exists[0] = false;
 		}
 
@@ -131,12 +144,12 @@ uint8_t imc_init(void)
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, Y_MIN_POS));
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, Y_MAX_POS));
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, Y_HOME_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)HOMING_FEEDRATE[i] * DEFAULT_AXIS_STEPS_PER_UNIG[i])));
+		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
 		if( IMC_RET_SUCCESS != ret )
 		{
 			SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
 			SERIAL_ECHO("Y");
-			numworked--;
+			num_worked--;
 			slave_exists[1] = false;
 		}
 	}
@@ -169,12 +182,12 @@ uint8_t imc_init(void)
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, Z_MIN_POS));
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, Z_MAX_POS));
 		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, Z_HOME_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)HOMING_FEEDRATE[i] * DEFAULT_AXIS_STEPS_PER_UNIG[i])));
+		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
 		if( IMC_RET_SUCCESS != ret )
 		{
 			SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
 			SERIAL_ECHO("Z");
-			numworked--;
+			num_worked--;
 			slave_exists[2] = false;
 		}
 	}
@@ -206,12 +219,12 @@ uint8_t imc_init(void)
 			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, 0));
 			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, 0));
 			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, 0));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, 0);
+			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, 0));
 			if( IMC_RET_SUCCESS != ret )
 			{
 				SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
 				SERIAL_ECHO('A' + (char)(i - 3));
-				numworked--;
+				num_worked--;
 				slave_exists[i] = false;
 			}
 		}
@@ -230,7 +243,7 @@ uint8_t imc_init(void)
 bool imc_is_slave_connected(uint8_t motor_id)
 {
 	if(motor_id < IMC_MAX_MOTORS)
-		return slave_exists(motor_id);
+		return slave_exists[motor_id];
 	return false;
 }
 
@@ -266,18 +279,18 @@ bool imc_sync_check()
 //      figure out which ones are.
 //   slave_fw_vers - array of the software versions reported by the slaves.
 //   slave_queue_depths - array of the queue depths reported by the slaves.
-imc_return_type imc_send_init_all(uint16_t host_revision, uint16_t slave_hw_vers[IMC_MAX_MOTORS], uint16_t slave_fw_vers[IMC_MAX_MOTORS], 
-	uint16_t slave_queue_depths[IMC_MAX_MOTORS], uint8_t retries = 3)
+imc_return_type imc_send_init_all(uint16_t slave_hw_vers[IMC_MAX_MOTORS], uint16_t slave_fw_vers[IMC_MAX_MOTORS], 
+	uint16_t slave_queue_depths[IMC_MAX_MOTORS], uint8_t retries)
 {
-	msg_initialize_t params = {host_revision, {0, 0, 0, 0, 0, 0}};
+	msg_initialize_t params = {IMC_HOST_REVISION, {0, 0, 0, 0, 0, 0}};
 	rsp_initialize_t resps[IMC_MAX_MOTORS];
-	imc_return_type ret = imc_send_init_all(&params, &resps, retries);
+	imc_return_type ret = imc_send_init_all(&params, resps, retries);
 
 	if( NULL == slave_hw_vers ) return ret;
 	for(uint8_t i = 0; i < IMC_MAX_MOTORS; ++i)
 	{
 		slave_hw_vers[i] = resps[i].slave_hw_ver;
-		slave_fw_ver[i] = resps[i].slave_fw_ver;
+		slave_fw_vers[i] = resps[i].slave_fw_ver;
 		slave_queue_depths[i] = resps[i].queue_depth;
 	}
 	return ret;
@@ -289,49 +302,151 @@ imc_return_type imc_send_init_all(uint16_t host_revision, uint16_t slave_hw_vers
 //   retries - number of times to retry sending the packet before failing.
 // Returns:
 //   resps - list of responses received from the slaves. Only populated for online slaves (see imc_is_slave_connected()).
-imc_return_type imc_send_init_all(const msg_initialize_t *params, rsp_initialize_t resps[IMC_MAX_MOTORS], uint8_t retries = 3)
+imc_return_type imc_send_init_all(const msg_initialize_t *params, rsp_initialize_t resps[IMC_MAX_MOTORS], uint8_t retries )
 {
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_init_one(i, params, &resps[i]), retries);
+			ret = max(ret, imc_send_init_one(i, params, &resps[i], retries));
 	return ret;
 }
 
-imc_return_type imc_send_init_one(uint8_t motor_id, const msg_initialize_t *params, rsp_initialize_t *resp, uint8_t retries = 3)
+// pass NULL to slave_hw_ver to ignore/not set slave_hw_ver, slave_fw_ver, and slave_queue_depth.
+imc_return_type imc_send_init_one(uint8_t motor_id, uint16_t *slave_hw_ver, uint16_t *slave_fw_ver, 
+	uint16_t *slave_queue_depth, uint8_t retries )
 {
-	return do_txrx( motor_id, IMC_MSG_INITIALIZE, (const uint8_t *)msg_initialize_t, sizeof(msg_initialize_t), (uint8_t*)resp, 
+	msg_initialize_t params = {IMC_HOST_REVISION, {0, 0, 0, 0, 0, 0}};
+	rsp_initialize_t resp;
+	imc_return_type ret = imc_send_init_one(motor_id, &params, &resp, retries);
+
+	if( NULL == slave_hw_ver ) return ret;
+	*slave_hw_ver = resp.slave_hw_ver;
+	*slave_fw_ver = resp.slave_fw_ver;
+	*slave_queue_depth = resp.queue_depth;
+	return ret;
+}
+
+imc_return_type imc_send_init_one(uint8_t motor_id, const msg_initialize_t *params, rsp_initialize_t *resp, uint8_t retries )
+{
+	return do_txrx( motor_id, IMC_MSG_INITIALIZE, (const uint8_t *)params, sizeof(msg_initialize_t), (uint8_t*)resp, 
 			sizeof(rsp_initialize_t), retries);
 }
 
 // Send the Status message
-//imc_return_type imc_send_status_all(int32_t locations[IMC_MAX_MOTORS], uint32_t sync_errors[IMC_MAX_MOTORS], 
-//	imc_axis_error statuss[IMC_MAX_MOTORS], uint8_t queued_moves[IMC_MAX_MOTORS], uint8_t retries = 3);
-imc_return_type imc_send_status_all(rsp_status_t resps[IMC_MAX_MOTORS], uint8_t retries = 3);
-//imc_return_type imc_send_status_one(uint8_t motor_id, int32_t *location, uint32_t *sync_error, imc_axis_error *status, uint8_t *queued_moves, uint8_t retries = 3);
-imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_t retries = 3);
+// Requests status from all slaves and returns a list of responses <resps>.
+// Params:
+//   retries - number of packet send/receive retries before fail.
+// Returns:
+//   function return - success(0)/error code
+//   resps - filled by the function with the response structures of the motors (only for motors that are enabled).
+imc_return_type imc_send_status_all(rsp_status_t resps[IMC_MAX_MOTORS], uint8_t retries )
+{
+	imc_return_type ret = IMC_RET_SUCCESS;
+	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+		if( slave_exists[i] )
+			ret = max(ret, imc_send_status_one(i, &resps[i], retries));
+	return ret;
+}
+// Same as above, but sending to only one motor.
+imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_t retries )
+{
+	return do_txrx( motor_id, IMC_MSG_STATUS, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
+			sizeof(rsp_status_t), retries);
+}
+
 
 // Send Home message
-//imc_return_type imc_send_home_all(int32_t old_positions[IMC_MAX_MOTORS], uint8_t retries = 3);
-imc_return_type imc_send_home_all(rsp_home_t resps[IMC_MAX_MOTORS], uint8_t retries = 3);
-//imc_return_type imc_send_home_one(uint8_t motor_id, int32_t *old_position, uint8_t retries = 3);
-imc_return_type imc_send_home_one(uint8_t motor_id, rsp_home_t *resp, uint8_t retries = 3);
+// Sends the homeing message to the slave. Returns immediately (i.e. does not wait for homeing to complete)
+// Params:
+//   retries - number of packet send/receive tries before fail.
+// Returns:
+//   function return - success(0)/error code
+//   resps - filled by the function with the response structures of the motors (only for motors that are enabled).
+imc_return_type imc_send_home_all(rsp_home_t resps[IMC_MAX_MOTORS], uint8_t retries )
+{
+	imc_return_type ret = IMC_RET_SUCCESS;
+	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+		if( slave_exists[i] )
+			ret = max(ret, imc_send_home_one(i, &resps[i], retries));
+	return ret;
+}
+// Same as above, but only one motor.
+imc_return_type imc_send_home_one(uint8_t motor_id, rsp_home_t *resp, uint8_t retries )
+{
+	return do_txrx( motor_id, IMC_MSG_HOME, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
+			sizeof(rsp_home_t), retries);
+}
 
 // Send Queue Move message
-imc_return_type imc_send_queue_all(int32_t length, uint32_t total_length, uint32_t initial_rate, uint32_t final_rate, 
-	uint32_t acceleration, uint32_t stop_accelerating, uint32_t start_decelerating, uint8_t retries = 3);
-//imc_return_type imc_send_queue_all(const msg_queue_move_t *params, uint8_t retries = 3);
-//imc_return_type imc_send_queue_one(uint8_t motor_id, int32_t length, uint32_t total_length, uint32_t initial_rate, uint32_t final_rate, 
-//	uint32_t acceleration, uint32_t stop_accelerating, uint32_t start_decelerating, uint8_t retries = 3);
-imc_return_type imc_send_queue_one(uint8_t motor_id, const msg_queue_move_t *params, uint8_t retries = 3);
+// Sends the queue move packet to all motors.
+// Params:
+//   params - the parameters to send to each motor.
+//   retries - the number of times to retry sending the packet.
+// Returns:
+//   function return - success(0)/error code
+imc_return_type imc_send_queue_all(const msg_queue_move_t params[IMC_MAX_MOTORS], uint8_t retries )
+{
+	imc_return_type ret = IMC_RET_SUCCESS;
+	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+		if( slave_exists[i] )
+			ret = max(ret, imc_send_queue_one(i, &params[i], retries));
+	return ret;
+}
+// Same as above, but for only one motor.
+imc_return_type imc_send_queue_one(uint8_t motor_id, const msg_queue_move_t *params, uint8_t retries )
+{
+	return do_txrx( motor_id, IMC_MSG_QUEUEMOVE, (const uint8_t *)params, sizeof(msg_queue_move_t), (uint8_t*)NULL, 
+			0, retries);
+}
 
 // Send Get Parameter message
-imc_return_type imc_send_get_param_all(imc_axis_parameter param_id, uint32_t values[IMC_MAX_MOTORS], uint8_t retries = 3);
-imc_return_type imc_send_get_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t *value, uint8_t retries = 3);
+// Sends the "Get Parameter" message to all slaves
+// Params:
+//   param_id - parameter ID (from the imc_axis_parameter list) to retrieve
+//   retries - number of times to retry sending the packet
+// Returns:
+//   function return - success(0)/error code
+//   values - set by the function with the response reported by each slave (only for slaves that are online)
+imc_return_type imc_send_get_param_all(imc_axis_parameter param_id, uint32_t values[IMC_MAX_MOTORS], uint8_t retries )
+{
+	imc_return_type ret = IMC_RET_SUCCESS;
+	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+		if( slave_exists[i] )
+			ret = max(ret, imc_send_get_param_one(i, param_id, &values[i], retries));
+	return ret;
+}
+// Same as above, but for just one motor.
+imc_return_type imc_send_get_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t *value, uint8_t retries )
+{
+	return do_txrx( motor_id, IMC_MSG_GETPARAM, (const uint8_t *)&param_id, sizeof(uint8_t), (uint8_t*)value, 
+			sizeof(uint32_t), retries);
+}
 
 // Send Set Parameter message
-imc_return_type imc_send_set_param_all(imc_axis_parameter param_id, uint32_t value, uint8_t retries = 3);
-imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t value, uint8_t retries = 3);
+// Sends the "Set Parameter" message to all slaves, setting all slaves parameters to the same value.
+// Params:
+//   param_id - parameter ID (from the imc_axis_parameter list) to retrieve
+//   retries - number of times to retry sending the packet
+//   value - value to assign for the parameter (reinterpret-cast all int/float parameters into uint32 for transmission)
+// Returns:
+//   function return - success(0)/error code
+imc_return_type imc_send_set_param_all(imc_axis_parameter param_id, uint32_t value, uint8_t retries )
+{
+	imc_return_type ret = IMC_RET_SUCCESS;
+	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+		if( slave_exists[i] )
+			ret = max(ret, imc_send_set_param_one(i, param_id, value, retries));
+	return ret;
+}
+// Same as above, but for one motor
+imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t value, uint8_t retries )
+{
+	msg_set_param_t msg;
+	msg.param_id = param_id;
+	msg.param_value = value;
+	return do_txrx( motor_id, IMC_MSG_SETPARAM, (const uint8_t *)&msg, sizeof(msg_set_param_t), (uint8_t*)NULL, 
+			0, retries);
+}
 
 
 
@@ -364,16 +479,16 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 		return IMC_RET_PARAM_ERROR;
 
 	// create the packet checksum
-	checkval = checksum(&msg_type, 1);
+	checkval = checksum((uint8_t*)&msg_type, 1);
 	checkval = checksum(payload, payload_len, checkval);
 
 	// send packet
 	for( uint8_t i = 0; i < retries && ret != IMC_RET_SUCCESS; ++i )
 	{
 		Wire.beginTransmission(slave_addr);
-		Wire.write(msg_type, 1);			// send the header
+		Wire.write(msg_type);			// send the header
 		Wire.write(payload, payload_len);	// send the payload
-		Wire.write(checkval, 1);			// send the checksum
+		Wire.write(checkval);			// send the checksum
 		switch(Wire.endTransmission())    // done transmitting.
 		{
 		case 0:				// success
@@ -382,7 +497,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			return IMC_RET_PARAM_ERROR;
 			break;
 		default:			// 2 and 3 are communication issues. Try again.
-			ret = IMC_COMM_ERROR;
+			ret = IMC_RET_COMM_ERROR;
 			continue;		// retry (go to top. do not pass go. do not collect $200).
 		}
 		
@@ -391,19 +506,19 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 		for( uint8_t j = 0; j < retries; ++j )
 		{
 			// read back the response - we will need resp_len + 2 because of the added response byte and checksum.
-			Wire.requestFrom(slave_addr, resp_len + 2);
+			Wire.requestFrom(slave_addr, (uint8_t)(resp_len + 2));
         
 
 			// did we get enough bytes?
 			if( Wire.available() < resp_len + 2 )
 			{
-				ret = IMC_COMM_ERROR;
+				ret = IMC_RET_COMM_ERROR;
 				continue;
 			}
 
 			// read back the data
 			respcode = Wire.read();
-			Wire.readBytes(resp, resp_len);
+			Wire.readBytes((char*)resp, resp_len);
 			respcheck = Wire.read();
 		        
 			// check for message integrity
@@ -411,7 +526,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			checkval = checksum(resp, resp_len, checkval);
 			if( respcheck != checkval )
 			{
-				ret = IMC_COMM_ERROR;
+				ret = IMC_RET_COMM_ERROR;
 				continue;
 			}
 
@@ -450,12 +565,15 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 //    startval - value to initialize the xor collector to. Used when combining different variables into one stream and checksumming together.
 // Returns:
 //    returns the 8-bit xor checksum.
-uint8_t checksum(const uint8_t *data, uint8_t len, uint8_t startval = 0)
+uint8_t checksum(const uint8_t *data, uint8_t len, uint8_t startval)
 {
-	uint8_t xor = startval;
+	uint8_t XOR = startval;
 	for(uint8_t i = 0; i < len; ++i)
 	{
-		xor ^= data[i];
+		XOR ^= data[i];
 	}
-	return xor;
+	return XOR;
 }
+
+
+#endif // IMC_ENABLED

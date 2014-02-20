@@ -61,6 +61,10 @@
 #include <SPI.h>
 #endif
 
+#ifdef IMC_ENABLED
+#include "imc_i2c.h"
+#endif
+
 #define VERSION_STRING  "1.0.0"
 
 // look here for descriptions of gcodes: http://linuxcnc.org/handbook/gcode/g-code.html
@@ -155,10 +159,12 @@
 // M400 - Finish all moves
 // M401 - Lower z-probe if present
 // M402 - Raise z-probe if present
-// M450 - Send Intelligent Motor Control Initialization packet. X, Y, Z, A, B, C - axis/axes to send
-// M451 - Send IMC status request packet. X, Y, Z, A, B, C - axis/axes to send
-// M452 - Send IMC home packet. X, Y, Z, A, B, C - axis/axes to send
-// M453 - Send IMC queue move packet. M: motor ID, 
+// M450 - Send Intelligent Motor Control Initialization packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes initialized.
+// M451 - Send IMC status request packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes queried.
+// M452 - Send IMC home packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, x, y, and z are homed.
+// M453 - Send IMC queue move packet (this is not the preferred way to command a move - see G00/G01). M: motor ID (x=0, y=1, etc), L: length (steps), T: total length (steps), I: initial rate (steps/min), F: final rate (steps/min), E: accEleration (steps/min^2), S: time to stop accelerating (steps), D: time to start decelerating (steps)
+// M454 - Get IMC device parameter. M: Motor ID, P: parameter ID
+// M455 - Set IMC device parameter. M: Motor ID, P: parameter ID, V: Value to set
 // M500 - stores paramters in EEPROM
 // M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily).
 // M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to.
@@ -477,7 +483,8 @@ void setup()
 
   #ifdef IMC_ENABLED
     uint8_t imc_motors = imc_init();			// startup the I2C/IMC interface.
-	SERIAL_ECHO_PGM(MSG_IMC_STARTUP);
+	SERIAL_ECHO_START;
+	SERIAL_ECHOPGM(MSG_IMC_STARTUP);
 	SERIAL_ECHO(imc_motors);
   #endif
 
@@ -2840,6 +2847,220 @@ void process_commands()
       #endif
     }
     break;
+	#ifdef IMC_ENABLED
+	case 450: // M450 - Send Intelligent Motor Control Initialization packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes initialized.
+	{
+		const char axs_tmp[] = "XYZABC";
+		bool seen = false;
+		uint16_t hw_ver, fw_ver, queue_depth;
+		SERIAL_ECHO_START;
+		for(int i = 0; i < 6; ++i)
+		{
+			if(code_seen(axs_tmp[i]))
+			{
+				seen = true;
+				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(": (");
+				SERIAL_ECHO(imc_send_init_one(i, &hw_ver, &fw_ver, &queue_depth));
+				SERIAL_ECHO(") ");
+				SERIAL_ECHO(hw_ver);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHO(fw_ver);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHOLN(queue_depth);
+			}
+		}
+		if(!seen)		// initialize all axes
+		{
+			for(int i = 0; i < 6; ++i)
+			{
+				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(": (");
+				SERIAL_ECHO(imc_send_init_one(i, &hw_ver, &fw_ver, &queue_depth));
+				SERIAL_ECHO(") ");
+				SERIAL_ECHO(hw_ver);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHO(fw_ver);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHOLN(queue_depth);
+			}
+		}
+	}
+    break;
+	case 451: // M451 - Send IMC status request packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes queried.
+	{
+		const char axs_tmp[] = "XYZABC";
+		bool seen = false;
+		rsp_status_t rsp;
+		SERIAL_ECHO_START;
+		for(int i = 0; i < 6; ++i)
+		{
+			if(code_seen(axs_tmp[i]))
+			{
+				seen = true;
+				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(": (");
+				SERIAL_ECHO(imc_send_status_one(i, &rsp));
+				SERIAL_ECHO(") ");
+				SERIAL_ECHO(rsp.location);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHO(rsp.sync_error);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHO(rsp.status);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHOLN(rsp.queued_moves);
+			}
+		}
+		if(!seen)		// initialize all axes
+		{
+			for(int i = 0; i < 6; ++i)
+			{
+				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(": (");
+				SERIAL_ECHO(imc_send_status_one(i, &rsp));
+				SERIAL_ECHO(") ");
+				SERIAL_ECHO(rsp.location);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHO(rsp.sync_error);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHO(rsp.status);
+				SERIAL_ECHO(", ");
+				SERIAL_ECHOLN(rsp.queued_moves);
+			}
+		}
+	}
+	break;
+	case 452: // M452 - Send IMC home packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, x, y, and z axes are homed.
+	{
+		const char axs_tmp[] = "XYZABC";
+		bool seen = false;
+		rsp_home_t rsp;
+		SERIAL_ECHO_START;
+		for(int i = 0; i < 6; ++i)
+		{
+			if(code_seen(axs_tmp[i]))
+			{
+				seen = true;
+				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(": (");
+				SERIAL_ECHO(imc_send_home_one(i, &rsp));
+				SERIAL_ECHO(") ");
+				SERIAL_ECHOLN(rsp.old_position);
+			}
+		}
+		if(!seen)		// initialize all axes
+		{
+			for(int i = 0; i < 3; ++i)
+			{
+				seen = true;
+				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(": (");
+				SERIAL_ECHO(imc_send_home_one(i, &rsp));
+				SERIAL_ECHO(") ");
+				SERIAL_ECHOLN(rsp.old_position);
+			}
+		}
+		st_synchronize();
+	}
+	break;
+	case 453: // M453 - Send IMC queue move packet (this is not the preferred way to command a move - see G00/G01). 
+			  // M: motor ID (x=0, y=1, etc), L: length (steps), T: total length (steps), I: initial rate (steps/min), 
+			  // F: final rate (steps/min), E: accEleration (steps/min^2), S: time to stop accelerating (steps), D: time to start decelerating (steps)
+	{
+		bool fail = false;
+		msg_queue_move_t msg;
+		uint8_t motor = 255;
+		if(code_seen('M')) motor = (uint8_t)code_value_long(); else fail = true;
+		if(code_seen('L')) msg.length = (int32_t)code_value_long(); else fail = true;
+		if(code_seen('T')) msg.total_length = (uint32_t)code_value_long(); else fail = true;
+		if(code_seen('I')) msg.initial_rate = (uint32_t)code_value_long(); else fail = true;
+		if(code_seen('F')) msg.final_rate = (uint32_t)code_value_long(); else fail = true;
+		if(code_seen('E')) msg.acceleration = (uint32_t)code_value_long(); else fail = true;
+		if(code_seen('S')) msg.stop_accelerating = (uint32_t)code_value_long(); else fail = true;
+		if(code_seen('D')) msg.start_decelerating = (uint32_t)code_value_long(); else fail = true;
+		if(fail)
+		{
+			SERIAL_ERROR_START;
+			SERIAL_ERRORLN("Not Enough Parameters.");
+		}
+		SERIAL_ECHO_START;
+		SERIAL_ECHOLN(imc_send_queue_one(motor, &msg));
+		// wait for move to finish.
+		st_synchronize();
+	}
+	break;
+	case 454: // M454 - Get IMC device parameter. M: Motor ID, P: parameter ID
+	{
+		bool fail = false;
+		imc_axis_parameter param;
+		uint8_t motor = 255;
+		uint32_t value;
+		if(code_seen('M')) motor = (uint8_t)code_value_long(); else fail = true;
+		if(code_seen('P')) param = (imc_axis_parameter)code_value_long(); else fail = true;
+		// === TODO: Check whether selection was valid?
+		if(fail)
+		{
+			SERIAL_ERROR_START;
+			SERIAL_ERRORLN("Not Enough Parameters.");
+		}
+		SERIAL_ECHO_START;
+		SERIAL_ECHO("(");
+		SERIAL_ECHO(imc_send_get_param_one(motor, param, &value));
+		SERIAL_ECHO("): ");
+		switch(imc_param_types[param])
+		{
+		case IMC_PARAM_TYPE_UINT:
+			SERIAL_ECHOLN(value);
+			break;
+		case IMC_PARAM_TYPE_INT:
+			SERIAL_ECHOLN((int32_t)value);
+			break;
+		case IMC_PARAM_TYPE_FLOAT:
+			SERIAL_ECHOLN((float)value);
+			break;
+		}
+	}
+	break;
+	case 455: // M455 - Set IMC device parameter. M: Motor ID, P: parameter ID, V: Value to set
+	{
+		bool fail = false;
+		imc_axis_parameter param;
+		uint8_t motor = 255;
+		uint32_t value;
+		if(code_seen('M')) motor = (uint8_t)code_value_long(); else fail = true;
+		if(code_seen('P')) param = (imc_axis_parameter)code_value_long(); else fail = true;
+		// === TODO: Check whether param selection was valid?
+		if(code_seen('V'))
+		{
+			value = (uint32_t)code_value_long();
+			switch(imc_param_types[param])
+			{
+			case IMC_PARAM_TYPE_UINT:
+				value = (uint32_t)code_value_long();
+				break;
+			case IMC_PARAM_TYPE_INT:
+				value = (int32_t)code_value_long();
+				break;
+			case IMC_PARAM_TYPE_FLOAT:
+				value = (float)code_value();
+				break;
+			}
+		}
+		else
+			fail = true;
+		if(fail)
+		{
+			SERIAL_ERROR_START;
+			SERIAL_ERRORLN("Not Enough Parameters.");
+		}
+		SERIAL_ECHO_START;
+		SERIAL_ECHO("(");
+		SERIAL_ECHO(imc_send_set_param_one(motor, param, value));
+		SERIAL_ECHOLN(")");
+	}
+	break;
+	#endif // IMC_ENABLED
+
     case 999: // M999: Restart after being stopped
       Stopped = false;
       lcd_reset_alert_level();
