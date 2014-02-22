@@ -121,8 +121,8 @@
 // 52 is 200k thermistor - ATC Semitec 204GT-2 (1k pullup)
 // 55 is 100k thermistor - ATC Semitec 104GT-2 (Used in ParCan & J-Head) (1k pullup)
 
-#define TEMP_SENSOR_0 -1
-#define TEMP_SENSOR_1 -1
+#define TEMP_SENSOR_0 0
+#define TEMP_SENSOR_1 0
 #define TEMP_SENSOR_2 0
 #define TEMP_SENSOR_BED 0
 
@@ -428,6 +428,8 @@ const bool Z_MAX_ENDSTOP_INVERTING = true; // set to true to invert the logic of
   // If you aren't using Z, but are using A, MAX_MOTORS still needs to be 4
   #define IMC_MAX_MOTORS		NUM_AXIS	
   #define IMC_HOST_REVISION	0x0001		// increment each time the protocol or master-slave interface code changes substantially.
+
+  #define IMC_DEBUG_MODE		// print extra debug messages to the console
   
   // i2c address of the first (X) motor axis. Each additional axis increases this number by 1. Change this number if other i2c addresses
   // in your setup conflict. Attempts will be made to contact all addresses in the range IMC_I2C_BASE_ADDRESS to IMC_I2C_BASE_ADDRESS + IMC_MAX_MOTORS

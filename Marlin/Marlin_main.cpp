@@ -485,7 +485,7 @@ void setup()
     uint8_t imc_motors = imc_init();			// startup the I2C/IMC interface.
 	SERIAL_ECHO_START;
 	SERIAL_ECHOPGM(MSG_IMC_STARTUP);
-	SERIAL_ECHO(imc_motors);
+	SERIAL_ECHOLN((int)imc_motors);
   #endif
 
   tp_init();    // Initialize temperature loop
@@ -818,6 +818,7 @@ static void axis_is_at_home(int axis) {
     }
   }
 #endif
+  // === Left off here
   current_position[axis] = base_home_pos(axis) + add_homeing[axis];
   min_pos[axis] =          base_min_pos(axis) + add_homeing[axis];
   max_pos[axis] =          base_max_pos(axis) + add_homeing[axis];
@@ -2859,7 +2860,7 @@ void process_commands()
 			if(code_seen(axs_tmp[i]))
 			{
 				seen = true;
-				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_init_one(i, &hw_ver, &fw_ver, &queue_depth));
 				SERIAL_ECHO(") ");
@@ -2867,14 +2868,15 @@ void process_commands()
 				SERIAL_ECHO(", ");
 				SERIAL_ECHO(fw_ver);
 				SERIAL_ECHO(", ");
-				SERIAL_ECHOLN(queue_depth);
+				SERIAL_ECHO(queue_depth);
+				SERIAL_ECHO("\n");
 			}
 		}
 		if(!seen)		// initialize all axes
 		{
 			for(int i = 0; i < 6; ++i)
 			{
-				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_init_one(i, &hw_ver, &fw_ver, &queue_depth));
 				SERIAL_ECHO(") ");
@@ -2882,7 +2884,8 @@ void process_commands()
 				SERIAL_ECHO(", ");
 				SERIAL_ECHO(fw_ver);
 				SERIAL_ECHO(", ");
-				SERIAL_ECHOLN(queue_depth);
+				SERIAL_ECHO(queue_depth);
+				SERIAL_ECHO("\n");
 			}
 		}
 	}
@@ -2898,7 +2901,6 @@ void process_commands()
 			if(code_seen(axs_tmp[i]))
 			{
 				seen = true;
-				SERIAL_ECHO(axs_tmp);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_status_one(i, &rsp));
 				SERIAL_ECHO(") ");
@@ -2908,14 +2910,15 @@ void process_commands()
 				SERIAL_ECHO(", ");
 				SERIAL_ECHO(rsp.status);
 				SERIAL_ECHO(", ");
-				SERIAL_ECHOLN(rsp.queued_moves);
+				SERIAL_ECHO(rsp.queued_moves);
+				SERIAL_ECHO("\n");
 			}
 		}
 		if(!seen)		// initialize all axes
 		{
 			for(int i = 0; i < 6; ++i)
 			{
-				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_status_one(i, &rsp));
 				SERIAL_ECHO(") ");
@@ -2925,7 +2928,8 @@ void process_commands()
 				SERIAL_ECHO(", ");
 				SERIAL_ECHO(rsp.status);
 				SERIAL_ECHO(", ");
-				SERIAL_ECHOLN(rsp.queued_moves);
+				SERIAL_ECHO(rsp.queued_moves);
+				SERIAL_ECHO("\n");
 			}
 		}
 	}
@@ -2941,11 +2945,12 @@ void process_commands()
 			if(code_seen(axs_tmp[i]))
 			{
 				seen = true;
-				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_home_one(i, &rsp));
 				SERIAL_ECHO(") ");
-				SERIAL_ECHOLN(rsp.old_position);
+				SERIAL_ECHO(rsp.old_position);
+				SERIAL_ECHO("\n");
 			}
 		}
 		if(!seen)		// initialize all axes
@@ -2953,35 +2958,37 @@ void process_commands()
 			for(int i = 0; i < 3; ++i)
 			{
 				seen = true;
-				SERIAL_ECHO(axs_tmp);
+				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_home_one(i, &rsp));
 				SERIAL_ECHO(") ");
-				SERIAL_ECHOLN(rsp.old_position);
+				SERIAL_ECHO(rsp.old_position);
+				SERIAL_ECHO("\n");
 			}
 		}
 		st_synchronize();
 	}
 	break;
 	case 453: // M453 - Send IMC queue move packet (this is not the preferred way to command a move - see G00/G01). 
-			  // M: motor ID (x=0, y=1, etc), L: length (steps), T: total length (steps), I: initial rate (steps/min), 
+			  // Q: motor ID (x=0, y=1, etc), L: length (steps), T: total length (steps), I: initial rate (steps/min), R: Nominal Rate (steps/min)
 			  // F: final rate (steps/min), E: accEleration (steps/min^2), S: time to stop accelerating (steps), D: time to start decelerating (steps)
 	{
 		bool fail = false;
 		msg_queue_move_t msg;
 		uint8_t motor = 255;
-		if(code_seen('M')) motor = (uint8_t)code_value_long(); else fail = true;
+		if(code_seen('Q')) motor = (uint8_t)code_value(); else fail = true;
 		if(code_seen('L')) msg.length = (int32_t)code_value_long(); else fail = true;
 		if(code_seen('T')) msg.total_length = (uint32_t)code_value_long(); else fail = true;
 		if(code_seen('I')) msg.initial_rate = (uint32_t)code_value_long(); else fail = true;
+		if(code_seen('R')) msg.nominal_rate = (uint32_t)code_value_long(); else fail = true;
 		if(code_seen('F')) msg.final_rate = (uint32_t)code_value_long(); else fail = true;
 		if(code_seen('E')) msg.acceleration = (uint32_t)code_value_long(); else fail = true;
 		if(code_seen('S')) msg.stop_accelerating = (uint32_t)code_value_long(); else fail = true;
 		if(code_seen('D')) msg.start_decelerating = (uint32_t)code_value_long(); else fail = true;
 		if(fail)
 		{
-			SERIAL_ERROR_START;
-			SERIAL_ERRORLN("Not Enough Parameters.");
+			SERIAL_ECHO_START;
+			SERIAL_ECHOLN("Not Enough Parameters.");
 		}
 		SERIAL_ECHO_START;
 		SERIAL_ECHOLN(imc_send_queue_one(motor, &msg));
@@ -2989,19 +2996,19 @@ void process_commands()
 		st_synchronize();
 	}
 	break;
-	case 454: // M454 - Get IMC device parameter. M: Motor ID, P: parameter ID
+	case 454: // M454 - Get IMC device parameter. Q: Motor ID, P: parameter ID
 	{
 		bool fail = false;
 		imc_axis_parameter param;
 		uint8_t motor = 255;
 		uint32_t value;
-		if(code_seen('M')) motor = (uint8_t)code_value_long(); else fail = true;
+		if(code_seen('Q')) motor = (uint8_t)code_value_long(); else fail = true;
 		if(code_seen('P')) param = (imc_axis_parameter)code_value_long(); else fail = true;
 		// === TODO: Check whether selection was valid?
 		if(fail)
 		{
-			SERIAL_ERROR_START;
-			SERIAL_ERRORLN("Not Enough Parameters.");
+			SERIAL_ECHO_START;
+			SERIAL_ECHOLN("Not Enough Parameters.");
 		}
 		SERIAL_ECHO_START;
 		SERIAL_ECHO("(");
@@ -3010,24 +3017,25 @@ void process_commands()
 		switch(imc_param_types[param])
 		{
 		case IMC_PARAM_TYPE_UINT:
-			SERIAL_ECHOLN(value);
+			SERIAL_ECHO(value);
 			break;
 		case IMC_PARAM_TYPE_INT:
-			SERIAL_ECHOLN((int32_t)value);
+			SERIAL_ECHO((int32_t)value);
 			break;
 		case IMC_PARAM_TYPE_FLOAT:
-			SERIAL_ECHOLN((float)value);
+			SERIAL_ECHO((float)value);
 			break;
 		}
+		SERIAL_ECHO("\n");
 	}
 	break;
-	case 455: // M455 - Set IMC device parameter. M: Motor ID, P: parameter ID, V: Value to set
+	case 455: // M455 - Set IMC device parameter. Q: Motor ID, P: parameter ID, V: Value to set
 	{
 		bool fail = false;
 		imc_axis_parameter param;
 		uint8_t motor = 255;
 		uint32_t value;
-		if(code_seen('M')) motor = (uint8_t)code_value_long(); else fail = true;
+		if(code_seen('Q')) motor = (uint8_t)code_value_long(); else fail = true;
 		if(code_seen('P')) param = (imc_axis_parameter)code_value_long(); else fail = true;
 		// === TODO: Check whether param selection was valid?
 		if(code_seen('V'))
@@ -3050,8 +3058,8 @@ void process_commands()
 			fail = true;
 		if(fail)
 		{
-			SERIAL_ERROR_START;
-			SERIAL_ERRORLN("Not Enough Parameters.");
+			SERIAL_ECHO_START;
+			SERIAL_ECHOLN("Not Enough Parameters.");
 		}
 		SERIAL_ECHO_START;
 		SERIAL_ECHO("(");

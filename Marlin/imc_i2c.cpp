@@ -52,15 +52,27 @@ uint8_t imc_init(void)
 	uint8_t num_worked = 0;
 	for(i = 0; i < IMC_MAX_MOTORS; ++i)
 	{
-		if(IMC_RET_SUCCESS == imc_send_init_one(i, &params, &resp, 5))
+		slave_exists[i] = true;		// if false, the function call will fail.
+		ret = imc_send_init_one(i, &params, &resp, 5);
+		if(IMC_RET_SUCCESS == ret)
 		{
 			num_worked++;
-			slave_exists[i] = true;
 			queue_depth[i] = resp.queue_depth;
 			min_queue_depth = min(min_queue_depth, queue_depth[i]);
+			#ifdef IMC_DEBUG_MODE
+				SERIAL_ECHO("IMC Axis ");
+				SERIAL_ECHO((int)i);
+				SERIAL_ECHOLN(" worked!");
+			#endif
 		}
 		else
 		{
+			#ifdef IMC_DEBUG_MODE
+				SERIAL_ECHO("IMC Axis ");
+				SERIAL_ECHO((int)i);
+				SERIAL_ECHO(" returned ");
+				SERIAL_ECHOLN((int)ret);
+			#endif
 			// slave did not respond or there was another error. Do not add to the list
 			slave_exists[i] = false;
 			queue_depth[i] = 0xffff;
@@ -475,7 +487,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 	uint8_t checkval, respcode, respcheck;
 
 	// sanity check - motor id valid?
-	if( motor > IMC_MAX_MOTORS || !slave_exists[slave_addr] )
+	if( motor > IMC_MAX_MOTORS || !slave_exists[motor] )
 		return IMC_RET_PARAM_ERROR;
 
 	// create the packet checksum

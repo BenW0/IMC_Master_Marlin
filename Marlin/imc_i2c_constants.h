@@ -6,7 +6,12 @@ This file contains definitions for all constants in the specification of the IMC
 #ifndef imc_protocol_constants_h
 #define imc_protocol_constants_h
 
-typedef enum __attribute__ ((__packed__)) {
+// TODO: delete this in commits
+#ifdef _MSC_VER
+#define __attribute__(x)
+#endif
+
+typedef enum  {
 	IMC_RET_SUCCESS = 0,		// first four lines are imc_response_type.
 	IMC_RET_SLAVE_UNKNOWN,
 	IMC_RET_SLAVE_ERROR,
@@ -14,27 +19,27 @@ typedef enum __attribute__ ((__packed__)) {
 	IMC_RET_COMM_ERROR,
 	IMC_RET_PARAM_ERROR,
 	IMC_RET_OTHER_ERROR
-} imc_return_type;
+} __attribute__ ((packed)) imc_return_type;
 
 // constants in this enum need to match indices into the imc_message_length[] and imc_resp_length[] arrays in message_structs.h
-typedef enum __attribute__ ((__packed__)) {
+typedef enum  {
   IMC_MSG_INITIALIZE = 1,
   IMC_MSG_STATUS = 2,
   IMC_MSG_HOME = 3,
   IMC_MSG_QUEUEMOVE = 4,
   IMC_MSG_GETPARAM = 5,
   IMC_MSG_SETPARAM = 6,
-} imc_message_type;
+} __attribute__ ((packed)) imc_message_type;
 
 
-typedef enum  __attribute__ ((__packed__)) {
+typedef enum   {
   IMC_RSP_OK = 0,		// this enum should be the first entries in imc_return_type
   IMC_RSP_UNKNOWN,
   IMC_RSP_ERROR,
   IMC_RSP_QUEUEFULL
-} imc_response_type;
+} __attribute__ ((packed)) imc_response_type;
 
-typedef enum __attribute__ ((__packed__)) {
+typedef enum  {
   IMC_PARAM_ERROR_INFO1,			// 0
   IMC_PARAM_ERROR_INFO2,			// 1
   IMC_PARAM_FLIP_AXIS,				// 2
@@ -54,15 +59,15 @@ typedef enum __attribute__ ((__packed__)) {
   IMC_PARAM_MOTOR_ON,				// 16
   IMC_PARAM_MOTOR_IDLE_TIMEOUT,		// 17
   IMC_PARAM_SLOWDOWN				// 18
-} imc_axis_parameter;
+} __attribute__ ((packed)) imc_axis_parameter;
 
 #define IMC_PARAM_COUNT   19		// number of parameters
 
-typedef enum __attribute__ ((__packed__)) {
+typedef enum  {
   IMC_PARAM_TYPE_UINT,
   IMC_PARAM_TYPE_INT,
   IMC_PARAM_TYPE_FLOAT
-} imc_param_type;
+} __attribute__ ((packed)) imc_param_type;
 
 // constant used when interpreting the type of axis parameters, esp for printing results to console.
 #define IMC_PARAM_TYPES { \
@@ -87,19 +92,19 @@ typedef enum __attribute__ ((__packed__)) {
 	IMC_PARAM_TYPE_UINT	\
 }
 
-typedef enum __attribute__ ((__packed__)) {
+typedef enum  {
   IMC_NO_PULL,
   IMC_PULLUP,
   IMC_PULLDOWN
-} imc_pullup_values;
+} __attribute__ ((packed)) imc_pullup_values;
   
 
-typedef enum __attribute__ ((__packed__)) {
+typedef enum  {
   IMC_ERR_NONE,
   IMC_ERR_CONTROL,
   IMC_ERR_ELECTRICAL,
   IMC_ERR_MECHANICAL,
   IMC_ERR_TIMEOUT
-} imc_axis_error;
+} __attribute__ ((packed)) imc_axis_error;
 
 #endif
