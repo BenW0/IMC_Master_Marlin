@@ -90,7 +90,7 @@
 // M0   - Unconditional stop - Wait for user to press a button on the LCD (Only if ULTRA_LCD is enabled)
 // M1   - Same as M0
 // M17  - Enable/Power all stepper motors
-// M18  - Disable all stepper motors; same as M84 //||\\
+// M18  - Disable all stepper motors; same as M84
 // M20  - List SD card
 // M21  - Init SD card
 // M22  - Release SD card
@@ -112,17 +112,17 @@
 // M81  - Turn off Power Supply
 // M82  - Set E codes absolute (default)
 // M83  - Set E codes relative while in Absolute Coordinates (G90) mode
-// M84  - Disable steppers until next move, //||\\
+// M84  - Disable steppers until next move,
 //        or use S<seconds> to specify an inactivity timeout, after which the steppers will be disabled.  S0 to disable the timeout.
-// M85  - Set inactivity shutdown timer with parameter S<seconds>. To disable set zero (default) //||\\
-// M92  - Set axis_steps_per_unit - same syntax as G92 //||\\ (clear buffer)
+// M85  - Set inactivity shutdown timer with parameter S<seconds>. To disable set zero (default)
+// M92  - Set axis_steps_per_unit - same syntax as G92
 // M104 - Set extruder target temp
 // M105 - Read current temp
 // M106 - Fan on
 // M107 - Fan off
 // M109 - Sxxx Wait for extruder current temp to reach target temp. Waits only when heating
 //        Rxxx Wait for extruder current temp to reach target temp. Waits when heating and cooling
-// M114 - Output current position to serial port //||\\
+// M114 - Output current position to serial port
 // M115 - Capabilities string
 // M117 - display message
 // M119 - Output Endstop status to serial port //||\\
@@ -156,18 +156,21 @@
 // M302 - Allow cold extrudes, or set the minimum extrude S<temperature>.
 // M303 - PID relay autotune S<temperature> sets the target temperature. (default target temperature = 150C)
 // M304 - Set bed PID parameters P I and D
-// M400 - Finish all moves //||\\
+// M400 - Finish all moves 
 // M401 - Lower z-probe if present
 // M402 - Raise z-probe if present
 // M450 - Send Intelligent Motor Control Initialization packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes initialized.
 // M451 - Send IMC status request packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes queried.
-// M452 - Send IMC home packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, x, y, and z are homed.
-// M453 - Send IMC queue move packet (this is not the preferred way to command a move - see G00/G01). M: motor ID (x=0, y=1, etc), L: length (steps), T: total length (steps), I: initial rate (steps/min), F: final rate (steps/min), E: accEleration (steps/min^2), S: time to stop accelerating (steps), D: time to start decelerating (steps)
-// M454 - Get IMC device parameter. M: Motor ID, P: parameter ID
-// M455 - Set IMC device parameter. M: Motor ID, P: parameter ID, V: Value to set
+// M452 - Send IMC home packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, x, y, and z axes are homed.
+// M453 - M453 - Send IMC queue move packet (this is not the preferred way to command a move - see G00/G01). 
+//			  Q: motor ID (x=0, y=1, etc), L: length (steps), T: total length (steps), I: initial rate (steps/min), R: Nominal Rate (steps/min)
+//			  F: final rate (steps/min), E: accEleration (steps/min^2), S: time to stop accelerating (steps), D: time to start decelerating (steps)
+// M454 - Get IMC device parameter. Q: Motor ID, P: parameter ID
+// M455 - Set IMC device parameter. Q: Motor ID, P: parameter ID, V: Value to set
+// M456 - Get last IMC sync error. Applies to all axes.
 // M500 - stores paramters in EEPROM
-// M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily). //||\\
-// M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to. //||\\
+// M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily).
+// M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to. 
 // M503 - print the current settings (from memory not from eeprom)
 // M540 - Use S[0|1] to enable or disable the stop SD card print on endstop hit (requires ABORT_ON_ENDSTOP_HIT_FEATURE_ENABLED)
 // M600 - Pause for filament change X[pos] Y[pos] Z[relative lift] E[initial retract] L[later retract distance for removal]
@@ -1270,10 +1273,10 @@ void process_commands()
           current_position[X_AXIS]=code_value()+add_homeing[0];
           #ifdef IMC_ENABLED
             // broadcast this to the slave also
-            if(imc_is_slave_connected(X_AXIS) && imc_send_set_param_one(X_AXIS, IMC_PARAM_LOCATION, lround(current_position[X_AXIS] * axis_steps_per_unit[X_AXIS]))
+            if(imc_is_slave_connected(X_AXIS) && imc_send_set_param_one(X_AXIS, IMC_PARAM_LOCATION, lround(current_position[X_AXIS] * axis_steps_per_unit[X_AXIS])))
             {
-              ECHO_ERROR_START;
-              ECHO_ERRORPGM("Error communicating with X axis slave.");
+              SERIAL_ERROR_START;
+              SERIAL_ERRORPGM("Error communicating with X axis slave.");
             }
           #endif
         }
@@ -1286,8 +1289,8 @@ void process_commands()
             // broadcast this to the slave also
             if(imc_is_slave_connected(Y_AXIS) && imc_send_set_param_one(Y_AXIS, IMC_PARAM_LOCATION, lround(current_position[Y_AXIS] * axis_steps_per_unit[Y_AXIS])))
             {
-              ECHO_ERROR_START;
-              ECHO_ERRORPGM("Error communicating with Y axis slave.");
+              SERIAL_ERROR_START;
+              SERIAL_ERRORPGM("Error communicating with Y axis slave.");
             }
           #endif
         }
@@ -1356,10 +1359,10 @@ void process_commands()
           current_position[Z_AXIS]=code_value()+add_homeing[2];
           #ifdef IMC_ENABLED
             // broadcast this to the slave also
-            if(imc_is_slave_connected(Z_AXIS) && imc_send_set_param_one(Z_AXIS, IMC_PARAM_LOCATION, lround(current_position[Z_AXIS]) * axis_steps_per_unit[Z_AXIS])))
+            if(imc_is_slave_connected(Z_AXIS) && imc_send_set_param_one(Z_AXIS, IMC_PARAM_LOCATION, lround(current_position[Z_AXIS] * axis_steps_per_unit[Z_AXIS])))
             {
-              ECHO_ERROR_START;
-              ECHO_ERRORPGM("Error communicating with Z axis slave.");
+              SERIAL_ERROR_START;
+              SERIAL_ERRORPGM("Error communicating with Z axis slave.");
             }
           #endif
         }
@@ -1619,8 +1622,8 @@ void process_commands()
             // broadcast this to the slave also
             if(imc_is_slave_connected(i) && imc_send_set_param_one(i, IMC_PARAM_LOCATION, lround(current_position[i]*axis_steps_per_unit[i])))
             {
-              ECHO_ERROR_START;
-              ECHO_ERRORPGM("G92. Error communicating with axis slave.");
+              SERIAL_ERROR_START;
+              SERIAL_ERRORPGM("G92. Error communicating with axis slave.");
             }
           #endif
         }
@@ -2947,32 +2950,28 @@ void process_commands()
 				seen = true;
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_status_one(i, &rsp));
-				SERIAL_ECHO(") ");
-				SERIAL_ECHO(rsp.location);
-				SERIAL_ECHO(", ");
-				SERIAL_ECHO(rsp.sync_error);
-				SERIAL_ECHO(", ");
+				SERIAL_ECHOPGM(") Status: ");
 				SERIAL_ECHO(rsp.status);
-				SERIAL_ECHO(", ");
+				SERIAL_ECHOPGM(", Moves Queued: ");
 				SERIAL_ECHO(rsp.queued_moves);
+        SERIAL_ECHOPGM(", Planner Moves Queued: ");
+        SERIAL_ECHO(movesplanned());
 				SERIAL_ECHO("\n");
 			}
 		}
-		if(!seen)		// initialize all axes
+		if(!seen)		// request all axes
 		{
 			for(int i = 0; i < 6; ++i)
 			{
 				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
 				SERIAL_ECHO(imc_send_status_one(i, &rsp));
-				SERIAL_ECHO(") ");
-				SERIAL_ECHO(rsp.location);
-				SERIAL_ECHO(", ");
-				SERIAL_ECHO(rsp.sync_error);
-				SERIAL_ECHO(", ");
+				SERIAL_ECHOPGM(") Status: ");
 				SERIAL_ECHO(rsp.status);
-				SERIAL_ECHO(", ");
+				SERIAL_ECHOPGM(", Moves Queued: ");
 				SERIAL_ECHO(rsp.queued_moves);
+        SERIAL_ECHOPGM(", Planner Moves Queued: ");
+        SERIAL_ECHO(movesplanned());
 				SERIAL_ECHO("\n");
 			}
 		}
@@ -2997,7 +2996,7 @@ void process_commands()
 				SERIAL_ECHO("\n");
 			}
 		}
-		if(!seen)		// initialize all axes
+		if(!seen)		// home all axes
 		{
 			for(int i = 0; i < 3; ++i)
 			{
@@ -3109,6 +3108,21 @@ void process_commands()
 		SERIAL_ECHO("(");
 		SERIAL_ECHO(imc_send_set_param_one(motor, param, value));
 		SERIAL_ECHOLN(")");
+	}
+	break;
+  case 456: // M456 - Get last IMC sync error. Applies to all axes.
+	{
+		const char axs_tmp[] = "XYZABC";
+		uint32_t rsp;
+		for(int i = 0; i < 3; ++i)
+		{
+      SERIAL_ECHO_START;
+			SERIAL_ECHO(axs_tmp[i]);
+			SERIAL_ECHO(": (");
+			SERIAL_ECHO(imc_send_get_param_one(i, IMC_PARAM_SYNC_ERROR, &rsp));
+			SERIAL_ECHO(") ");
+			SERIAL_ECHOLN(rsp);
+		}
 	}
 	break;
 	#endif // IMC_ENABLED
@@ -3625,6 +3639,8 @@ void kill()
 #ifdef IMC_ENABLED
   // keep IMC controllers from continuing.
   imc_sync_set();
+  // clear IMC buffers
+  imc_quick_stop();
 #endif
 
 #if defined(PS_ON_PIN) && PS_ON_PIN > -1

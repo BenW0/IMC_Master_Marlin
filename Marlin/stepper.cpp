@@ -1333,7 +1333,7 @@ void st_set_e_position(const long &e)
 long st_get_position(uint8_t axis)
 {
   long out;
-  if(imc_send_get_param_one(axis, IMC_PARAM_LOCATION, &out))
+  if(imc_send_get_param_one(axis, IMC_PARAM_LOCATION, (uint32_t *)&out))
     out = 0;    // there was an error -- the param did not get set.
   return out;
 }
@@ -1407,3 +1407,5 @@ void microstep_readings() {}
     SERIAL_ERRORLNPGM("This hasn't been implemented! babystep with IMC");
   }
 #endif
+
+#endif      // IMC_ENABLED

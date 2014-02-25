@@ -29,7 +29,7 @@ typedef enum  {
   IMC_MSG_QUEUEMOVE = 4,
   IMC_MSG_GETPARAM = 5,
   IMC_MSG_SETPARAM = 6,
-  // FUTURE: IMC_MSG_QUICKSTOP
+  IMC_MSG_QUICKSTOP = 7
   // FUTURE: IMC_MSG_BABYSTEP
 } __attribute__ ((packed)) imc_message_type;
 
@@ -95,7 +95,7 @@ typedef enum  {
 	IMC_PARAM_TYPE_UINT,\
 	IMC_PARAM_TYPE_UINT,\
 	IMC_PARAM_TYPE_UINT,\
-  IMC_PARAM_TYPE_UINT
+  IMC_PARAM_TYPE_UINT \
 }
 
 typedef enum  {

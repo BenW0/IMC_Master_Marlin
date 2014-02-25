@@ -49,6 +49,10 @@
 
 #include "WString.h"
 
+#ifdef IMC_ENABLED
+#include "imc_i2c.h"
+#endif
+
 #ifdef AT90USB
    #ifdef BTENABLED
          #define MYSERIAL bt
@@ -112,7 +116,7 @@ void manage_inactivity();
   #define disable_x() do { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); WRITE(X2_ENABLE_PIN,!X_ENABLE_ON); axis_known_position[X_AXIS] = false; } while (0)
 #elif defined(X_ENABLE_PIN) && X_ENABLE_PIN > -1
   #define  enable_x() WRITE(X_ENABLE_PIN, X_ENABLE_ON)
-  #define disable_x() { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); axis_known_position[X_AXIS] = false; }  //||\\ Need to fix this
+  #define disable_x() { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); axis_known_position[X_AXIS] = false; }
 #else
   #define enable_x() ;
   #define disable_x() ;
@@ -170,7 +174,23 @@ void manage_inactivity();
 
 #else   // #ifndef IMC_ENABLED
 
-//||\\ Left off here!
+#define  enable_x() imc_send_set_param_one(0, IMC_PARAM_MOTOR_ON, 1)
+#define disable_x() imc_send_set_param_one(0, IMC_PARAM_MOTOR_ON, 0)
+
+#define  enable_y() imc_send_set_param_one(1, IMC_PARAM_MOTOR_ON, 1)
+#define disable_y() imc_send_set_param_one(1, IMC_PARAM_MOTOR_ON, 0)
+
+#define  enable_z() imc_send_set_param_one(2, IMC_PARAM_MOTOR_ON, 1)
+#define disable_z() imc_send_set_param_one(2, IMC_PARAM_MOTOR_ON, 0)
+
+#define enable_e0() imc_send_set_param_one(3, IMC_PARAM_MOTOR_ON, 1)
+#define disable_e0() imc_send_set_param_one(3, IMC_PARAM_MOTOR_ON, 0)
+
+#define enable_e1()  imc_send_set_param_one(4, IMC_PARAM_MOTOR_ON, 1)
+#define disable_e1() imc_send_set_param_one(4, IMC_PARAM_MOTOR_ON, 0)
+
+#define enable_e2() imc_send_set_param_one(5, IMC_PARAM_MOTOR_ON, 1)
+#define disable_e2() imc_send_set_param_one(5, IMC_PARAM_MOTOR_ON, 0)
 
 #endif  // IMC_ENABLED
 

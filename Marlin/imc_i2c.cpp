@@ -5,13 +5,12 @@
   Matthew Sorensen & Ben Weiss, University of Washington
 
   TODO: Replace all tabs by two spaces to conform with the rest of Marlin
-  TODO: Sync release on build start? On queue move?
-  TODO: x_enable() needs to be rewritten.
   TODO: Figure out how to control endstops - presence vs. enabling.
-  TODO: Fill out imc_quick_stop
+  TODO: Figure out Autotemp and refactor planner.cpp/check_axis_activity
 
   Questions to answer:
   * Will slaves wait for a sync before homing, or home immediately after message send (my preference)?
+  * Sync release on build start? On queue move?
 */
 
 #include <Wire.h>
@@ -34,15 +33,16 @@
 
 // Global Variables===================================================================
 const imc_param_type imc_param_types[IMC_PARAM_COUNT] = IMC_PARAM_TYPES;
-uint16_t imc_queue_depth;				// minimum slave queue depth
 
 // Local Variables ===================================================================
 bool slave_exists[IMC_MAX_MOTORS];		// is the slave connected?
 uint16_t queue_depth[IMC_MAX_MOTORS];	// What is each slave's queue depth?
 uint16_t moves_queued_guess = 0;            // Set by imc_check_status, incremented when imc_send_queue_move_* is called, and cleared when imc_drain_queue or imc_flush_queue is called.
+uint16_t imc_queue_depth;				// minimum slave queue depth
 
 // Local Function Predeclares ========================================================
 uint16_t imc_push_blocks(uint16_t blocks_to_push);
+imc_return_type imc_send_quickstop_one(uint8_t motor_id, uint8_t retries = 3);
 imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t *payload, uint8_t payload_len, uint8_t *resp, uint8_t resp_len, uint8_t retries);
 uint8_t checksum(const uint8_t *data, uint8_t len, uint8_t startval = 0);
 
@@ -77,7 +77,7 @@ uint8_t imc_init(void)
 		{
 			num_worked++;
 			queue_depth[i] = resp.queue_depth;
-			imc_queue_depth = min(min_queue_depth, queue_depth[i]);
+			imc_queue_depth = min(imc_queue_depth, queue_depth[i]);
 			#ifdef IMC_DEBUG_MODE
 				SERIAL_ECHO("IMC Axis ");
 				SERIAL_ECHO((int)i);
@@ -100,7 +100,6 @@ uint8_t imc_init(void)
 
 
 	// upload limit switch and other functional information to each slave controlling a limited axis...
-	// //||\\ TODO Some of these settings are probably stored in soft memory. Need to find the actual values not just global defaults.
 
 	uint8_t min_limit_en = 1, max_limit_en = 1;
 	#ifdef DISABLE_MIN_ENDSTOPS
@@ -299,7 +298,7 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
   {
     if(slave_exists[i])
     {
-      ret = max(ret, imc_send_status_one(i, &rsp);
+      ret = max(ret, imc_send_status_one(i, &rsp));
       if(NULL != axis_errors)
         axis_errors[i] = rsp.status;
       if(!ret)
@@ -309,7 +308,7 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
       }
     }
     if(NULL != axis_errors)
-      axis_errors[i] = IMC_RET_SUCCESS;
+      axis_errors[i] = IMC_ERR_NONE;
   }
   if(NULL != queued_moves)
     *queued_moves = max_queue;
@@ -370,7 +369,7 @@ imc_return_type imc_balance_queues(void)
     SERIAL_ERRORPGM("IMC Error! ");
     SERIAL_ERRORLN(ret);
     const char axis_codes[] = "XYZABC";
-    for(uint8_t i = 0; i < IMC_MAX_MOTORS)
+    for(uint8_t i = 0; i < IMC_MAX_MOTORS; ++i)
     {
       SERIAL_ERROR(axis_codes[i]);
       SERIAL_ERRORLN(errs[i]);
@@ -481,7 +480,7 @@ imc_return_type imc_drain_queues(void)
   // check - are queues already empty?
   if(moves_queued_guess)
   {
-    ret = imc_check_status(NULL, &queued_moves, 10);
+    ret = imc_check_status(NULL, &queued_moves, NULL);
     if(!ret)    // continue only if no errors
 	  {
       if(queued_moves == 0)
@@ -505,7 +504,7 @@ imc_return_type imc_drain_queues(void)
   // idle waiting for queues to empty.
   while(queued_moves)
   {
-	  ret = imc_check_status(NULL, &queued_moves, 10);
+	  ret = imc_check_status(NULL, &queued_moves);
     if(ret)   // error condition
       return ret;
     moves_queued_guess = queued_moves;
@@ -521,12 +520,11 @@ imc_return_type imc_drain_queues(void)
 // Forces motion stop and deletes all entries in build queues. Used when cancelling a build. This function shadows stepper.cpp/quickStop
 void imc_quick_stop(void)
 {
-  // TODO: fill this if used!
   while(blocks_queued())
     plan_discard_current_block();
   current_block = NULL;
-  //moves_queued_guess = 0;
-  imc_drain_queues();
+  
+  imc_send_quickstop_all(10);
 }
 
 // imc_last_queue_state
@@ -734,6 +732,28 @@ imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter para
 	msg.param_id = param_id;
 	msg.param_value = value;
 	return do_txrx( motor_id, IMC_MSG_SETPARAM, (const uint8_t *)&msg, sizeof(msg_set_param_t), (uint8_t*)NULL, 
+			0, retries);
+}
+
+// Send Quickstop message
+// Sends the "quickstop" message to all slaves, stopping all motion and deleting all queued moves
+// Params:
+//   retries - number of times to retry sending the packet
+// Returns:
+//   function return - success(0)/error code
+imc_return_type imc_send_quickstop_all(uint8_t retries)
+{
+	imc_return_type ret = IMC_RET_SUCCESS;
+	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+		if( slave_exists[i] )
+			ret = max(ret, imc_send_quickstop_one(i, retries));
+  moves_queued_guess = 0;
+	return ret;
+}
+// Same as above, but for one motor. This is private (all quickstops should apply to all motors)
+imc_return_type imc_send_quickstop_one(uint8_t motor_id, uint8_t retries)
+{
+	return do_txrx( motor_id, IMC_MSG_QUICKSTOP, (const uint8_t *)NULL, 0, (uint8_t*)NULL, 
 			0, retries);
 }
 

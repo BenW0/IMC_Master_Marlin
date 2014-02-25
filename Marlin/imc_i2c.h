@@ -75,9 +75,11 @@ imc_return_type imc_send_get_param_one(uint8_t motor_id, imc_axis_parameter para
 imc_return_type imc_send_set_param_all(imc_axis_parameter param_id, uint32_t value, uint8_t retries = 3);
 imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t value, uint8_t retries = 3);
 
+// Send Quickstop message
+imc_return_type imc_send_quickstop_all(uint8_t retries = 3);
+
 // global variables
 extern const imc_param_type imc_param_types[];
-extern imc_queue_depth;
 
 #endif	// IMC_ENABLED
 #endif // __IMC_I2C_H
