@@ -56,8 +56,6 @@ typedef struct {
 } __attribute__ ((packed)) rsp_initialize_t;
 
 typedef struct __attribute__(__packed__)){
-  int32_t location;
-  uint32_t sync_error;
   uint16_t queued_moves;
   imc_axis_error status;
 } __attribute__ ((packed)) rsp_status_t;
@@ -79,13 +77,13 @@ typedef struct {
   
 const uint8_t imc_message_type_count = 6;    // number of message types defined.
 
-const uint8_t imc_message_length[imc_message_type_count + 1] = {0, sizeof(msg_initialize_t), 
-                              0/*sizeof(msg_status_t)*/, 0/*sizeof(msg_home_t)*/, sizeof(msg_queue_move_t), 
-                              sizeof(msg_get_param_t), sizeof(msg_set_param_t)};
+//const uint8_t imc_message_length[imc_message_type_count + 1] = {0, sizeof(msg_initialize_t), 
+//                              0/*sizeof(msg_status_t)*/, 0/*sizeof(msg_home_t)*/, sizeof(msg_queue_move_t), 
+//                              sizeof(msg_get_param_t), sizeof(msg_set_param_t)};
 
-const uint8_t imc_resp_length[imc_message_type_count + 1] = {0, sizeof(rsp_initialize_t), 
-                              sizeof(rsp_status_t), sizeof(rsp_home_t), 0/*sizeof(rsp_queue_move_t)*/,
-                              sizeof(rsp_get_param_t), 0/*sizeof(rsp_set_param_t)*/};
+//const uint8_t imc_resp_length[imc_message_type_count + 1] = {0, sizeof(rsp_initialize_t), 
+//                              sizeof(rsp_status_t), sizeof(rsp_home_t), 0/*sizeof(rsp_queue_move_t)*/,
+//                              sizeof(rsp_get_param_t), 0/*sizeof(rsp_set_param_t)*/};
 #endif
 
 

@@ -6,7 +6,7 @@ This file contains definitions for all constants in the specification of the IMC
 #ifndef imc_protocol_constants_h
 #define imc_protocol_constants_h
 
-// TODO: delete this in commits
+// TODO: DO NOT COMMIT THIS LINE *******************
 #ifdef _MSC_VER
 #define __attribute__(x)
 #endif
@@ -29,6 +29,8 @@ typedef enum  {
   IMC_MSG_QUEUEMOVE = 4,
   IMC_MSG_GETPARAM = 5,
   IMC_MSG_SETPARAM = 6,
+  // FUTURE: IMC_MSG_QUICKSTOP
+  // FUTURE: IMC_MSG_BABYSTEP
 } __attribute__ ((packed)) imc_message_type;
 
 
@@ -58,10 +60,12 @@ typedef enum  {
   IMC_PARAM_HOMING_FEEDRATE,		// 15
   IMC_PARAM_MOTOR_ON,				// 16
   IMC_PARAM_MOTOR_IDLE_TIMEOUT,		// 17
-  IMC_PARAM_SLOWDOWN				// 18
+  IMC_PARAM_SLOWDOWN,				// 18
+  IMC_PARAM_LOCATION,				// 19
+  IMC_PARAM_SYNC_ERROR      		// 20 - read only
 } __attribute__ ((packed)) imc_axis_parameter;
 
-#define IMC_PARAM_COUNT   19		// number of parameters
+#define IMC_PARAM_COUNT   21		// number of parameters
 
 typedef enum  {
   IMC_PARAM_TYPE_UINT,
@@ -89,7 +93,9 @@ typedef enum  {
 	IMC_PARAM_TYPE_INT, \
 	IMC_PARAM_TYPE_UINT,\
 	IMC_PARAM_TYPE_UINT,\
-	IMC_PARAM_TYPE_UINT	\
+	IMC_PARAM_TYPE_UINT,\
+	IMC_PARAM_TYPE_UINT,\
+  IMC_PARAM_TYPE_UINT
 }
 
 typedef enum  {
@@ -106,5 +112,6 @@ typedef enum  {
   IMC_ERR_MECHANICAL,
   IMC_ERR_TIMEOUT
 } __attribute__ ((packed)) imc_axis_error;
+  
 
 #endif

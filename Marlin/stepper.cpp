@@ -39,6 +39,7 @@
 //===========================================================================
 block_t *current_block;  // A pointer to the block currently being traced
 
+#ifndef IMC_ENABLED
 
 //===========================================================================
 //=============================private variables ============================
@@ -1291,3 +1292,118 @@ void microstep_readings()
       SERIAL_PROTOCOLLN( digitalRead(E1_MS2_PIN));
 }
 
+
+
+
+#else   // ifndef IMC_ENABLED
+
+#include "imc_i2c.h"
+
+// These functions implement everything that stepper.c would normally implement, directing the calls to imc_i2c.h for appropriate
+// distribution accross the i2c bus.
+
+
+
+// Initialize and start the stepper motor subsystem
+void st_init()
+{
+  return;
+}
+
+// Block until all buffered steps are executed
+void st_synchronize()
+{
+  imc_drain_queues();
+}
+
+// Set current position in steps
+void st_set_position(const long &x, const long &y, const long &z, const long &e)
+{
+  imc_send_set_param_one(0, IMC_PARAM_LOCATION, x);
+  imc_send_set_param_one(1, IMC_PARAM_LOCATION, y);
+  imc_send_set_param_one(2, IMC_PARAM_LOCATION, z);
+  imc_send_set_param_one(3, IMC_PARAM_LOCATION, e);
+}
+void st_set_e_position(const long &e)
+{
+  imc_send_set_param_one(3, IMC_PARAM_LOCATION, e);
+}
+
+// Get current position in steps
+long st_get_position(uint8_t axis)
+{
+  long out;
+  if(imc_send_get_param_one(axis, IMC_PARAM_LOCATION, &out))
+    out = 0;    // there was an error -- the param did not get set.
+  return out;
+}
+
+#ifdef ENABLE_AUTO_BED_LEVELING
+// Get current position in mm
+float st_get_position_mm(uint8_t axis)
+{
+  SERIAL_ERROR_START;
+  SERIAL_ERRORLNPGM("This hasn't been implemented! st_get_position_mm");
+  return 0;
+}
+#endif  //ENABLE_AUTO_BED_LEVELING
+
+// This routine is no longer needed with IMC.
+void st_wake_up()
+{
+  return;
+}
+
+//this is handled with slave error checking
+void checkHitEndstops() 
+{
+  return;
+}
+// this is handled by the slave's onboard homeing function
+void endstops_hit_on_purpose()
+{
+  return;
+}
+
+void enable_endstops(bool check)
+{
+  //||\\ Need to figure out what to do with this.
+}
+
+// this is now handled by slave error checking
+void checkStepperErrors()
+{
+}
+
+void finishAndDisableSteppers()
+{
+  st_synchronize();
+  disable_x();
+  disable_y();
+  disable_z();
+  disable_e0();
+  disable_e1();
+  disable_e2();
+}
+
+void quickStop()
+{
+  imc_quick_stop();
+}
+
+// all of these are not presently needed or not yet implemented.
+void digitalPotWrite(int address, int value) {}
+void microstep_ms(uint8_t driver, int8_t ms1, int8_t ms2) {}
+void microstep_mode(uint8_t driver, uint8_t stepping) {}
+void digipot_init() {}
+void digipot_current(uint8_t driver, int current) {}
+void microstep_init() {}
+void microstep_readings() {}
+
+#ifdef BABYSTEPPING
+  void babystep(const uint8_t axis,const bool direction)
+  {
+    SERIAL_ERROR_START;
+    SERIAL_ERRORLNPGM("This hasn't been implemented! babystep with IMC");
+  }
+#endif

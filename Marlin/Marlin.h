@@ -104,13 +104,15 @@ void process_commands();
 
 void manage_inactivity();
 
+#ifndef IMC_ENABLED
+
 #if defined(DUAL_X_CARRIAGE) && defined(X_ENABLE_PIN) && X_ENABLE_PIN > -1 \
     && defined(X2_ENABLE_PIN) && X2_ENABLE_PIN > -1
   #define  enable_x() do { WRITE(X_ENABLE_PIN, X_ENABLE_ON); WRITE(X2_ENABLE_PIN, X_ENABLE_ON); } while (0)
   #define disable_x() do { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); WRITE(X2_ENABLE_PIN,!X_ENABLE_ON); axis_known_position[X_AXIS] = false; } while (0)
 #elif defined(X_ENABLE_PIN) && X_ENABLE_PIN > -1
   #define  enable_x() WRITE(X_ENABLE_PIN, X_ENABLE_ON)
-  #define disable_x() { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); axis_known_position[X_AXIS] = false; }
+  #define disable_x() { WRITE(X_ENABLE_PIN,!X_ENABLE_ON); axis_known_position[X_AXIS] = false; }  //||\\ Need to fix this
 #else
   #define enable_x() ;
   #define disable_x() ;
@@ -165,6 +167,12 @@ void manage_inactivity();
   #define enable_e2()  /* nothing */
   #define disable_e2() /* nothing */
 #endif
+
+#else   // #ifndef IMC_ENABLED
+
+//||\\ Left off here!
+
+#endif  // IMC_ENABLED
 
 
 enum AxisEnum {X_AXIS=0, Y_AXIS=1, Z_AXIS=2, E_AXIS=3};

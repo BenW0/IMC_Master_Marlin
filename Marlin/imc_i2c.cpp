@@ -3,6 +3,15 @@
   discrete Intelligent Motor Controllers.
 
   Matthew Sorensen & Ben Weiss, University of Washington
+
+  TODO: Replace all tabs by two spaces to conform with the rest of Marlin
+  TODO: Sync release on build start? On queue move?
+  TODO: x_enable() needs to be rewritten.
+  TODO: Figure out how to control endstops - presence vs. enabling.
+  TODO: Fill out imc_quick_stop
+
+  Questions to answer:
+  * Will slaves wait for a sync before homing, or home immediately after message send (my preference)?
 */
 
 #include <Wire.h>
@@ -13,18 +22,27 @@
 #include "imc_i2c_message_structs.h"
 #include "language.h"
 #include "pins.h"
+#include "temperature.h"
+#include "ultralcd.h"
 
 #ifdef IMC_ENABLED
 
+// Queue Balancer shaping constants
+// if the slave queue is less than IMC_QUQUE_LOW_THRESH blocks, extra blocks are taken off the planner queue to prevent buffer underrun.
+#define IMC_QUEUE_LOW_THRESH      8
+
+
 // Global Variables===================================================================
 const imc_param_type imc_param_types[IMC_PARAM_COUNT] = IMC_PARAM_TYPES;
+uint16_t imc_queue_depth;				// minimum slave queue depth
 
 // Local Variables ===================================================================
 bool slave_exists[IMC_MAX_MOTORS];		// is the slave connected?
 uint16_t queue_depth[IMC_MAX_MOTORS];	// What is each slave's queue depth?
-uint16_t min_queue_depth;				// minimum slave queue depth
+uint16_t moves_queued_guess = 0;            // Set by imc_check_status, incremented when imc_send_queue_move_* is called, and cleared when imc_drain_queue or imc_flush_queue is called.
 
 // Local Function Predeclares ========================================================
+uint16_t imc_push_blocks(uint16_t blocks_to_push);
 imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t *payload, uint8_t payload_len, uint8_t *resp, uint8_t resp_len, uint8_t retries);
 uint8_t checksum(const uint8_t *data, uint8_t len, uint8_t startval = 0);
 
@@ -43,12 +61,13 @@ uint8_t imc_init(void)
 
 	// configure the sync line to keep motion from happening until we're ready.
 	imc_sync_set();
+  moves_queued_guess = 0;
 
 
 	// Query each of the slaves here and get queue depth, presence information
 	msg_initialize_t params = {IMC_HOST_REVISION, {0, 0, 0, 0, 0, 0}};
 	rsp_initialize_t resp;
-	min_queue_depth = 0xffff;
+	imc_queue_depth = 0xffff;
 	uint8_t num_worked = 0;
 	for(i = 0; i < IMC_MAX_MOTORS; ++i)
 	{
@@ -58,7 +77,7 @@ uint8_t imc_init(void)
 		{
 			num_worked++;
 			queue_depth[i] = resp.queue_depth;
-			min_queue_depth = min(min_queue_depth, queue_depth[i]);
+			imc_queue_depth = min(min_queue_depth, queue_depth[i]);
 			#ifdef IMC_DEBUG_MODE
 				SERIAL_ECHO("IMC Axis ");
 				SERIAL_ECHO((int)i);
@@ -81,7 +100,7 @@ uint8_t imc_init(void)
 
 
 	// upload limit switch and other functional information to each slave controlling a limited axis...
-	// === TODO Some of these settings are probably stored in soft memory. Need to find the actual values not just global defaults.
+	// //||\\ TODO Some of these settings are probably stored in soft memory. Need to find the actual values not just global defaults.
 
 	uint8_t min_limit_en = 1, max_limit_en = 1;
 	#ifdef DISABLE_MIN_ENDSTOPS
@@ -248,6 +267,9 @@ uint8_t imc_init(void)
 		
 }
 
+
+// Slave status queries
+
 // imc_is_slave_connected - queries the imc_i2c module to find out if a slave motor was discovered at startup.
 //  this function does not actively interrogate the slave, but relies upon information learned at startup.
 // Params:
@@ -258,6 +280,45 @@ bool imc_is_slave_connected(uint8_t motor_id)
 		return slave_exists[motor_id];
 	return false;
 }
+
+// imc_check_status
+// checks with slaves and determines the queue state, if it isn't already known. Returns the maximum number of queued moves.
+// This function applies to *all* active slaves
+// Returns:
+//   Function return - 0 = success, > 0 = error.
+//   axis_errors - errors reported by each axis. Set to NULL to ignore. If any axis has errors, the return will be nonzero.
+//   queued_moves - set by the function to the maximum number of queued moves. Set to NULL to ignore.
+//   queue_disagreement - set by the function to True if some slaves report a different number of queued moves. This might happen if the query
+//       just spans a move transition. Set to NULL to ignore.
+imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uint16_t *queued_moves, bool *queue_disagreement)
+{
+  imc_return_type ret = IMC_RET_SUCCESS;
+  rsp_status_t rsp;
+  uint16_t min_queue = 0xffff, max_queue = 0;;
+  for(uint8_t i = 0; i < IMC_MAX_MOTORS; ++i)
+  {
+    if(slave_exists[i])
+    {
+      ret = max(ret, imc_send_status_one(i, &rsp);
+      if(NULL != axis_errors)
+        axis_errors[i] = rsp.status;
+      if(!ret)
+      {
+        min_queue = min(min_queue, rsp.queued_moves);
+        max_queue = max(max_queue, rsp.queued_moves);
+      }
+    }
+    if(NULL != axis_errors)
+      axis_errors[i] = IMC_RET_SUCCESS;
+  }
+  if(NULL != queued_moves)
+    *queued_moves = max_queue;
+  if(NULL != queue_disagreement && 0xffff != min_queue)
+    *queue_disagreement = (max_queue != min_queue);
+  moves_queued_guess = max_queue;
+  return ret;
+}
+
 
 // synchronization pin commands
 // imc_sync_set - sets the synchronization line low
@@ -281,6 +342,209 @@ bool imc_sync_check()
 }
 
 
+
+// Queue management commands
+
+// imc_balance_queues
+// Balances the queues between the planner and the slaves. The routine tries to keep the number of queued moves in the planner
+// and on the slaves roughly equal, unless the slaves are under IMC_QUEUE_LOW_THRESH, in which case moves are transferred to
+// the slaves as fast as possible until the queue level rises above IMC_QUEUE_LOW_THRESH.
+// Params: None
+// Returns: 0 = success, >0 = error
+imc_return_type imc_balance_queues(void)
+{
+  uint16_t slave_blocks = 0;
+  uint16_t planner_blocks = 0;
+  uint16_t total_blocks;
+  bool slave_out_of_sync = false;
+  imc_return_type ret = IMC_RET_SUCCESS;
+
+  // first, get the number of blocks in the slave queue
+  ret = imc_check_status(NULL, &slave_blocks, &slave_out_of_sync);
+  if(ret)   // error state!
+  {
+    // check for more errors and report to console.
+    imc_axis_error errs[IMC_MAX_MOTORS];
+    imc_check_status(errs);
+    SERIAL_ERROR_START;
+    SERIAL_ERRORPGM("IMC Error! ");
+    SERIAL_ERRORLN(ret);
+    const char axis_codes[] = "XYZABC";
+    for(uint8_t i = 0; i < IMC_MAX_MOTORS)
+    {
+      SERIAL_ERROR(axis_codes[i]);
+      SERIAL_ERRORLN(errs[i]);
+    }
+    return ret;
+  }
+#ifdef IMC_DEBUG_MODE
+  if(slave_out_of_sync)
+  {
+    SERIAL_ECHO_START;
+    SERIAL_ECHOLNPGM("Slaves out of sync!");
+  }
+#endif
+  moves_queued_guess = slave_blocks;
+
+  // now, get the # of blocks in the planner queue
+  planner_blocks = movesplanned();
+
+  // if we have no moves presently planned, set the sync pin so slaves don't start when we queue new moves.
+  if(slave_blocks == 0)
+    imc_sync_set();
+
+  // is the slave buffer near empty?
+  if(slave_blocks < IMC_QUEUE_LOW_THRESH)
+  {
+    // push blocks to the slave as fast as possible!
+    moves_queued_guess += imc_push_blocks(IMC_QUEUE_LOW_THRESH - slave_blocks);
+    
+  }
+  else
+  {
+    // balance the blocks evenly
+    total_blocks = planner_blocks + slave_blocks;
+    if(planner_blocks > total_blocks / 2)
+    {
+      if(slave_blocks + (planner_blocks - total_blocks/2) < imc_queue_depth)
+        moves_queued_guess += imc_push_blocks(planner_blocks - total_blocks / 2);
+      else
+        moves_queued_guess += imc_push_blocks(imc_queue_depth - slave_blocks);
+    }
+  }
+
+  // if there are blocks to be moved now but were't before, start the movement
+  if(moves_queued_guess > 0 && 0 == slave_blocks)
+    imc_sync_release();
+}
+
+// imc_push_blocks (local)
+// If all slaves have queue space available, pops a move off of the local planner queue and sends it to the slaves.
+// Params: blocks_to_push - number of blocks to pop off the local planner and send to the slaves.
+// Returns: # of blocks pushed.
+uint16_t imc_push_blocks(uint16_t blocks_to_push)
+{
+  uint16_t blocks_pushed = 0;
+  if(0 == blocks_to_push)   // nothing to do
+    return 0;
+
+  msg_queue_move_t move_data[IMC_MAX_MOTORS];
+
+  for(uint16_t block = 0; block < blocks_to_push; ++block)
+  {
+    // get the current block
+    current_block = plan_get_current_block();
+    if(NULL != current_block)
+    {
+      current_block->busy = true;
+
+      // fill the move data structure for sending to the slaves.
+      for(uint8_t k = 0; k < IMC_MAX_MOTORS; k++)
+      {
+        // the IMC motor controllers work in steps/min or steps/min^2
+        move_data[k].acceleration = current_block->acceleration_st * 60 * 60;   // steps/min^2
+        move_data[k].final_rate = current_block->final_rate;               // steps/min
+        move_data[k].initial_rate = current_block->initial_rate;         // steps/min
+        move_data[k].nominal_rate = current_block->nominal_rate;         // steps/min
+        move_data[k].start_decelerating = current_block->decelerate_after;
+        move_data[k].stop_accelerating = current_block->accelerate_until;
+        move_data[k].total_length = current_block->step_event_count;
+        move_data[k].length = 0;
+      }
+      move_data[0].length = current_block->steps_x;
+      move_data[1].length = current_block->steps_y;
+      move_data[2].length = current_block->steps_z;
+      move_data[3].length = current_block->steps_e;
+
+      // push this block to the slaves
+      imc_send_queue_all(move_data);
+      blocks_pushed++;
+
+      // finish with the current block
+      plan_discard_current_block();
+    }
+  }
+  return blocks_pushed;
+}
+
+// imc_drain_queues
+// Blocks until all slaves have emptied their queues by moving (does NOT erase queue blocks). This WILL start motion if queues are full
+// but execution is manually paused using imc_sync_set() (though this condition should be very rare). This will drain both the 
+// slave queues and the planner queue.
+// 
+// Params: none
+// Returns: 0=success, >0 = error
+imc_return_type imc_drain_queues(void)
+{
+  imc_return_type ret = IMC_RET_SUCCESS;
+  uint16_t queued_moves = 1;
+  // check - are queues already empty?
+  if(moves_queued_guess)
+  {
+    ret = imc_check_status(NULL, &queued_moves, 10);
+    if(!ret)    // continue only if no errors
+	  {
+      if(queued_moves == 0)
+      {
+        // nothing to be done. We're already drained.
+        moves_queued_guess = 0;
+        return ret;
+      }
+	  }
+	  else
+		  // error condition
+		  return ret;
+  }
+  else
+    // we already know the queue is empty
+    return IMC_RET_SUCCESS;
+
+  // make sure the sync line is released --> slaves can move
+  imc_sync_release();
+
+  // idle waiting for queues to empty.
+  while(queued_moves)
+  {
+	  ret = imc_check_status(NULL, &queued_moves, 10);
+    if(ret)   // error condition
+      return ret;
+    moves_queued_guess = queued_moves;
+	  manage_heater();
+	  manage_inactivity();
+	  lcd_update();
+  }
+
+  moves_queued_guess = 0;
+}
+
+// imc_quick_stop
+// Forces motion stop and deletes all entries in build queues. Used when cancelling a build. This function shadows stepper.cpp/quickStop
+void imc_quick_stop(void)
+{
+  // TODO: fill this if used!
+  while(blocks_queued())
+    plan_discard_current_block();
+  current_block = NULL;
+  //moves_queued_guess = 0;
+  imc_drain_queues();
+}
+
+// imc_last_queue_state
+// returns the queue state as of the last status check, WITHOUT querying slaves. The number returned should be regarded as an upper bound
+// on the number of moves queued. Generally, use this to quickly check if no moves are queued.
+uint16_t imc_last_queue_state(void)
+{
+  return moves_queued_guess;
+}
+
+
+
+// Slave location commands
+
+
+
+
+// Message functions
 
 // Sends the Initialize message to all slaves. Returns success, or an error code if any of the active slaves have an error.
 // Params:
@@ -320,6 +584,7 @@ imc_return_type imc_send_init_all(const msg_initialize_t *params, rsp_initialize
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
 			ret = max(ret, imc_send_init_one(i, params, &resps[i], retries));
+  moves_queued_guess = 0;
 	return ret;
 }
 
@@ -382,6 +647,16 @@ imc_return_type imc_send_home_all(rsp_home_t resps[IMC_MAX_MOTORS], uint8_t retr
 			ret = max(ret, imc_send_home_one(i, &resps[i], retries));
 	return ret;
 }
+// Same as above, but only one motor. pass NULL to old_position to ignore it.
+imc_return_type imc_send_home_one(uint8_t motor_id, int32_t *old_position, uint8_t retries)
+{
+	rsp_home_t resp;
+  imc_return_type ret;
+  ret = imc_send_home_one(motor_id, &resp, retries);
+  if(NULL != old_position)
+    *old_position = resp.old_position;
+  return ret;
+}
 // Same as above, but only one motor.
 imc_return_type imc_send_home_one(uint8_t motor_id, rsp_home_t *resp, uint8_t retries )
 {
@@ -402,9 +677,11 @@ imc_return_type imc_send_queue_all(const msg_queue_move_t params[IMC_MAX_MOTORS]
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
 			ret = max(ret, imc_send_queue_one(i, &params[i], retries));
+  moves_queued_guess++;   // signal that the queue may be full now...
 	return ret;
 }
-// Same as above, but for only one motor.
+// Same as above, but for only one motor. DO NOT USE this function for normal operation, or estimates of queue capacity will
+// be affected. It is made public only for debug and special code M453.
 imc_return_type imc_send_queue_one(uint8_t motor_id, const msg_queue_move_t *params, uint8_t retries )
 {
 	return do_txrx( motor_id, IMC_MSG_QUEUEMOVE, (const uint8_t *)params, sizeof(msg_queue_move_t), (uint8_t*)NULL, 

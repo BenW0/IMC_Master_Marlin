@@ -24,13 +24,21 @@
 // initializes i2c
 uint8_t imc_init(void);
 
-// slave/motor connectivity queries
+// slave/motor status queries
 bool imc_is_slave_connected(uint8_t motor_id);
+imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS] = NULL, 
+      uint16_t *queued_moves = NULL, bool *queue_disagreement = NULL);
 
 // synchronization pin commands
 void imc_sync_set();
 bool imc_sync_release();
 bool imc_sync_check();
+
+// queue management commands
+imc_return_type imc_balance_queues(void);
+imc_return_type imc_drain_queues(void);
+void imc_quick_stop(void);
+uint16_t imc_last_queue_state(void);
 
 // Sends the Initialize message to all slaves.
 imc_return_type imc_send_init_all(uint16_t slave_hw_vers[IMC_MAX_MOTORS], uint16_t slave_fw_vers[IMC_MAX_MOTORS], 
@@ -50,7 +58,7 @@ imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_
 // Send Home message
 //imc_return_type imc_send_home_all(int32_t old_positions[IMC_MAX_MOTORS], uint8_t retries = 3);
 imc_return_type imc_send_home_all(rsp_home_t resps[IMC_MAX_MOTORS], uint8_t retries = 3);
-//imc_return_type imc_send_home_one(uint8_t motor_id, int32_t *old_position, uint8_t retries = 3);
+imc_return_type imc_send_home_one(uint8_t motor_id, int32_t *old_position, uint8_t retries = 3);
 imc_return_type imc_send_home_one(uint8_t motor_id, rsp_home_t *resp, uint8_t retries = 3);
 
 // Send Queue Move message
@@ -69,6 +77,7 @@ imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter para
 
 // global variables
 extern const imc_param_type imc_param_types[];
+extern imc_queue_depth;
 
 #endif	// IMC_ENABLED
 #endif // __IMC_I2C_H

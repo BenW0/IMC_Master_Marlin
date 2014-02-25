@@ -90,7 +90,7 @@
 // M0   - Unconditional stop - Wait for user to press a button on the LCD (Only if ULTRA_LCD is enabled)
 // M1   - Same as M0
 // M17  - Enable/Power all stepper motors
-// M18  - Disable all stepper motors; same as M84
+// M18  - Disable all stepper motors; same as M84 //||\\
 // M20  - List SD card
 // M21  - Init SD card
 // M22  - Release SD card
@@ -112,20 +112,20 @@
 // M81  - Turn off Power Supply
 // M82  - Set E codes absolute (default)
 // M83  - Set E codes relative while in Absolute Coordinates (G90) mode
-// M84  - Disable steppers until next move,
+// M84  - Disable steppers until next move, //||\\
 //        or use S<seconds> to specify an inactivity timeout, after which the steppers will be disabled.  S0 to disable the timeout.
-// M85  - Set inactivity shutdown timer with parameter S<seconds>. To disable set zero (default)
-// M92  - Set axis_steps_per_unit - same syntax as G92
+// M85  - Set inactivity shutdown timer with parameter S<seconds>. To disable set zero (default) //||\\
+// M92  - Set axis_steps_per_unit - same syntax as G92 //||\\ (clear buffer)
 // M104 - Set extruder target temp
 // M105 - Read current temp
 // M106 - Fan on
 // M107 - Fan off
 // M109 - Sxxx Wait for extruder current temp to reach target temp. Waits only when heating
 //        Rxxx Wait for extruder current temp to reach target temp. Waits when heating and cooling
-// M114 - Output current position to serial port
+// M114 - Output current position to serial port //||\\
 // M115 - Capabilities string
 // M117 - display message
-// M119 - Output Endstop status to serial port
+// M119 - Output Endstop status to serial port //||\\
 // M126 - Solenoid Air Valve Open (BariCUDA support by jmil)
 // M127 - Solenoid Air Valve Closed (BariCUDA vent to atmospheric pressure by jmil)
 // M128 - EtoP Open (BariCUDA EtoP = electricity to air pressure transducer by jmil)
@@ -156,7 +156,7 @@
 // M302 - Allow cold extrudes, or set the minimum extrude S<temperature>.
 // M303 - PID relay autotune S<temperature> sets the target temperature. (default target temperature = 150C)
 // M304 - Set bed PID parameters P I and D
-// M400 - Finish all moves
+// M400 - Finish all moves //||\\
 // M401 - Lower z-probe if present
 // M402 - Raise z-probe if present
 // M450 - Send Intelligent Motor Control Initialization packet. X, Y, Z, A, B, C - axis/axes to send. If none specified, all axes initialized.
@@ -166,8 +166,8 @@
 // M454 - Get IMC device parameter. M: Motor ID, P: parameter ID
 // M455 - Set IMC device parameter. M: Motor ID, P: parameter ID, V: Value to set
 // M500 - stores paramters in EEPROM
-// M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily).
-// M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to.
+// M501 - reads parameters from EEPROM (if you need reset them after you changed them temporarily). //||\\
+// M502 - reverts to the default "factory settings".  You still need to store them in EEPROM afterwards if you want to. //||\\
 // M503 - print the current settings (from memory not from eeprom)
 // M540 - Use S[0|1] to enable or disable the stop SD card print on endstop hit (requires ABORT_ON_ENDSTOP_HIT_FEATURE_ENABLED)
 // M600 - Pause for filament change X[pos] Y[pos] Z[relative lift] E[initial retract] L[later retract distance for removal]
@@ -818,7 +818,6 @@ static void axis_is_at_home(int axis) {
     }
   }
 #endif
-  // === Left off here
   current_position[axis] = base_home_pos(axis) + add_homeing[axis];
   min_pos[axis] =          base_min_pos(axis) + add_homeing[axis];
   max_pos[axis] =          base_max_pos(axis) + add_homeing[axis];
@@ -1000,6 +999,12 @@ static void homeaxis(int axis) {
       axis_home_dir = x_home_dir(active_extruder);
 #endif
 
+#ifdef IMC_ENABLED
+    // homing occurs on the slave, using the slave's homing routine.
+    st_synchronize();   // clear queue before starting
+    imc_send_home_one(axis, (int32_t*)NULL);
+    st_synchronize();   // wait for homing to complete
+#else // IMC_ENABLED
     current_position[axis] = 0;
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
 	
@@ -1045,6 +1050,7 @@ static void homeaxis(int axis) {
       st_synchronize();
     }
 #endif
+#endif  // IMC_ENABLED/else
     axis_is_at_home(axis);
     destination[axis] = current_position[axis];
     feedrate = 0.0;
@@ -1262,12 +1268,28 @@ void process_commands()
       {
         if(code_value_long() != 0) {
           current_position[X_AXIS]=code_value()+add_homeing[0];
+          #ifdef IMC_ENABLED
+            // broadcast this to the slave also
+            if(imc_is_slave_connected(X_AXIS) && imc_send_set_param_one(X_AXIS, IMC_PARAM_LOCATION, lround(current_position[X_AXIS] * axis_steps_per_unit[X_AXIS]))
+            {
+              ECHO_ERROR_START;
+              ECHO_ERRORPGM("Error communicating with X axis slave.");
+            }
+          #endif
         }
       }
 
       if(code_seen(axis_codes[Y_AXIS])) {
         if(code_value_long() != 0) {
           current_position[Y_AXIS]=code_value()+add_homeing[1];
+          #ifdef IMC_ENABLED
+            // broadcast this to the slave also
+            if(imc_is_slave_connected(Y_AXIS) && imc_send_set_param_one(Y_AXIS, IMC_PARAM_LOCATION, lround(current_position[Y_AXIS] * axis_steps_per_unit[Y_AXIS])))
+            {
+              ECHO_ERROR_START;
+              ECHO_ERRORPGM("Error communicating with Y axis slave.");
+            }
+          #endif
         }
       }
       
@@ -1332,6 +1354,14 @@ void process_commands()
       if(code_seen(axis_codes[Z_AXIS])) {
         if(code_value_long() != 0) {
           current_position[Z_AXIS]=code_value()+add_homeing[2];
+          #ifdef IMC_ENABLED
+            // broadcast this to the slave also
+            if(imc_is_slave_connected(Z_AXIS) && imc_send_set_param_one(Z_AXIS, IMC_PARAM_LOCATION, lround(current_position[Z_AXIS]) * axis_steps_per_unit[Z_AXIS])))
+            {
+              ECHO_ERROR_START;
+              ECHO_ERRORPGM("Error communicating with Z axis slave.");
+            }
+          #endif
         }
       }
       #ifdef ENABLE_AUTO_BED_LEVELING
@@ -1576,14 +1606,23 @@ void process_commands()
         st_synchronize();
       for(int8_t i=0; i < NUM_AXIS; i++) {
         if(code_seen(axis_codes[i])) {
-           if(i == E_AXIS) {
-             current_position[i] = code_value();
-             plan_set_e_position(current_position[E_AXIS]);
-           }
-           else {
-             current_position[i] = code_value()+add_homeing[i];
-             plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
-           }
+          if(i == E_AXIS) {
+            current_position[i] = code_value();
+            plan_set_e_position(current_position[E_AXIS]);
+          }
+          else {
+            current_position[i] = code_value()+add_homeing[i];
+            plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
+          }
+
+          #ifdef IMC_ENABLED
+            // broadcast this to the slave also
+            if(imc_is_slave_connected(i) && imc_send_set_param_one(i, IMC_PARAM_LOCATION, lround(current_position[i]*axis_steps_per_unit[i])))
+            {
+              ECHO_ERROR_START;
+              ECHO_ERRORPGM("G92. Error communicating with axis slave.");
+            }
+          #endif
         }
       }
       break;
@@ -2250,8 +2289,13 @@ void process_commands()
     case 206: // M206 additional homeing offset
       for(int8_t i=0; i < 3; i++)
       {
-        if(code_seen(axis_codes[i])) add_homeing[i] = code_value();
-		//=== need to fix this
+        if(code_seen(axis_codes[i]))
+		    {
+		      add_homeing[i] = code_value();
+		      #ifdef IMC_ENABLED
+			      imc_send_set_param_one(i, IMC_PARAM_HOME_POS, lround((base_home_pos(i) + add_homeing[i])*axis_steps_per_unit[i]));
+          #endif
+         }
       }
       break;
     #ifdef DELTA
@@ -3004,7 +3048,7 @@ void process_commands()
 		uint32_t value;
 		if(code_seen('Q')) motor = (uint8_t)code_value_long(); else fail = true;
 		if(code_seen('P')) param = (imc_axis_parameter)code_value_long(); else fail = true;
-		// === TODO: Check whether selection was valid?
+		// //||\\ TODO: Check whether selection was valid?
 		if(fail)
 		{
 			SERIAL_ECHO_START;
@@ -3037,7 +3081,7 @@ void process_commands()
 		uint32_t value;
 		if(code_seen('Q')) motor = (uint8_t)code_value_long(); else fail = true;
 		if(code_seen('P')) param = (imc_axis_parameter)code_value_long(); else fail = true;
-		// === TODO: Check whether param selection was valid?
+		// //||\\ TODO: Check whether param selection was valid?
 		if(code_seen('V'))
 		{
 			value = (uint32_t)code_value_long();
@@ -3563,6 +3607,7 @@ void manage_inactivity()
       handle_status_leds();
   #endif
   check_axes_activity();
+  imc_balance_queues();
 }
 
 void kill()
@@ -3576,6 +3621,11 @@ void kill()
   disable_e0();
   disable_e1();
   disable_e2();
+
+#ifdef IMC_ENABLED
+  // keep IMC controllers from continuing.
+  imc_sync_set();
+#endif
 
 #if defined(PS_ON_PIN) && PS_ON_PIN > -1
   pinMode(PS_ON_PIN,INPUT);
