@@ -829,10 +829,19 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			respcode = Wire.read();
 			Wire.readBytes((char*)resp, resp_len);
 			respcheck = Wire.read();
-		        
+		  
 			// check for message integrity
-			checkval = checksum(&respcode, 1);
-			checkval = checksum(resp, resp_len, checkval);
+      if(IMC_RSP_OK == respcode)
+      {
+			  checkval = checksum(&respcode, 1);
+			  checkval = checksum(resp, resp_len, checkval);
+      }
+      else    // if there was an error, no payload will be included, and the second byte of the transmission is the error.
+      {
+        checkval = respcode;
+        if(0 != resp_len)
+          respcheck = resp[0];
+      }
 			if( respcheck != checkval )
 			{
 				ret = IMC_RET_COMM_ERROR;
