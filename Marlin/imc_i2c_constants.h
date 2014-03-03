@@ -35,7 +35,8 @@ typedef enum  {
 
 
 typedef enum   {
-  IMC_RSP_OK = 0,		// this enum should be the first entries in imc_return_type
+  IMC_RSP_COMM_ERROR = 0, // 0 is special - since it's easy to get 0's by accident, they are defined as a special error.
+  IMC_RSP_OK,             // the next four lines should match the first four of imc_return_type
   IMC_RSP_UNKNOWN,
   IMC_RSP_ERROR,
   IMC_RSP_QUEUEFULL

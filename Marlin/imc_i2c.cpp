@@ -829,6 +829,14 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			respcode = Wire.read();
 			Wire.readBytes((char*)resp, resp_len);
 			respcheck = Wire.read();
+
+      // check for explicit comm error (buffer mismatch)
+      if(IMC_RSP_COMM_ERROR == respcode)
+      {
+        // something is horribly wrong!
+        ret = IMC_RET_COMM_ERROR;
+        continue;
+      }
 		  
 			// check for message integrity
       if(IMC_RSP_OK == respcode)
@@ -836,7 +844,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			  checkval = checksum(&respcode, 1);
 			  checkval = checksum(resp, resp_len, checkval);
       }
-      else    // if there was an error, no payload will be included, and the second byte of the transmission is the error.
+      else    // if there was an error, no payload will be included, and the second byte of the transmission is the checksum.
       {
         checkval = respcode;
         if(0 != resp_len)
@@ -848,7 +856,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 				continue;
 			}
 
-			ret = (imc_return_type)respcode;
+			ret = (imc_return_type)(respcode-1);    // adjust for communication errors
 
 			break;	// successful read. Finish loop.
 		}
