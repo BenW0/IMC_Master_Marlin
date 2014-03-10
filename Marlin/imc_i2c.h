@@ -28,6 +28,8 @@ uint8_t imc_init(void);
 bool imc_is_slave_connected(uint8_t motor_id);
 imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS] = NULL, 
       uint16_t *queued_moves = NULL, bool *queue_disagreement = NULL);
+imc_return_type imc_turn_motor_off(uint8_t motor_id);
+imc_return_type imc_turn_motor_on(uint8_t motor_id);
 
 // synchronization pin commands
 void imc_sync_set();
@@ -57,9 +59,8 @@ imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_
 
 // Send Home message
 //imc_return_type imc_send_home_all(int32_t old_positions[IMC_MAX_MOTORS], uint8_t retries = 3);
-imc_return_type imc_send_home_all(rsp_home_t resps[IMC_MAX_MOTORS], uint8_t retries = 3);
-imc_return_type imc_send_home_one(uint8_t motor_id, int32_t *old_position, uint8_t retries = 3);
-imc_return_type imc_send_home_one(uint8_t motor_id, rsp_home_t *resp, uint8_t retries = 3);
+imc_return_type imc_send_home_all(uint8_t retries = 3);
+imc_return_type imc_send_home_one(uint8_t motor_id, uint8_t retries = 3);
 
 // Send Queue Move message
 imc_return_type imc_send_queue_all(const msg_queue_move_t params[IMC_MAX_MOTORS], uint8_t retries = 3);

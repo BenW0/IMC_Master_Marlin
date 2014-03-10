@@ -63,10 +63,12 @@ typedef enum  {
   IMC_PARAM_MOTOR_IDLE_TIMEOUT,		// 17
   IMC_PARAM_SLOWDOWN,				// 18
   IMC_PARAM_LOCATION,				// 19
-  IMC_PARAM_SYNC_ERROR      		// 20 - read only
+  IMC_PARAM_SYNC_ERROR,      		// 20 - read only
+  IMC_PARAM_LAST_HOME,  // 21 Read only
+  IMC_PARAM_MICROSTEPPING // 22 Write only
 } __attribute__ ((packed)) imc_axis_parameter;
 
-#define IMC_PARAM_COUNT   21		// number of parameters
+#define IMC_PARAM_COUNT   23		// number of parameters
 
 typedef enum  {
   IMC_PARAM_TYPE_UINT,
@@ -96,6 +98,8 @@ typedef enum  {
 	IMC_PARAM_TYPE_UINT,\
 	IMC_PARAM_TYPE_UINT,\
 	IMC_PARAM_TYPE_UINT,\
+  IMC_PARAM_TYPE_UINT, \
+  IMC_PARAM_TYPE_INT, \
   IMC_PARAM_TYPE_UINT \
 }
 

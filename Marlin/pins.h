@@ -656,7 +656,11 @@
   #if defined(IMC_ENABLED) && (MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35)
     // i2c pins are globally defined with SCL and SDA; IMC just uses those names
     // Pin to use for sync:
-	#define IMC_SYNC_PIN   16
+    // YES, this overrides the default ZMIN endstop pin, but all endstops are now going to the devices
+    // themselves.
+	  #define IMC_SYNC_PIN   18
+    #undef Z_MIN_PIN
+    #define Z_MIN_PIN -1
   #endif
 
 #else // RAMPS_V_1_1 or RAMPS_V_1_2 as default (MOTHERBOARD == 3)

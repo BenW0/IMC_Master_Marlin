@@ -1005,7 +1005,7 @@ static void homeaxis(int axis) {
 #ifdef IMC_ENABLED
     // homing occurs on the slave, using the slave's homing routine.
     st_synchronize();   // clear queue before starting
-    imc_send_home_one(axis, (int32_t*)NULL);
+    imc_send_home_one(axis);
     st_synchronize();   // wait for homing to complete
 #else // IMC_ENABLED
     current_position[axis] = 0;
@@ -2955,7 +2955,7 @@ void process_commands()
 				SERIAL_ECHOPGM(", Moves Queued: ");
 				SERIAL_ECHO(rsp.queued_moves);
         SERIAL_ECHOPGM(", Planner Moves Queued: ");
-        SERIAL_ECHO(movesplanned());
+        SERIAL_ECHO((int)movesplanned());
 				SERIAL_ECHO("\n");
 			}
 		}
@@ -2971,7 +2971,7 @@ void process_commands()
 				SERIAL_ECHOPGM(", Moves Queued: ");
 				SERIAL_ECHO(rsp.queued_moves);
         SERIAL_ECHOPGM(", Planner Moves Queued: ");
-        SERIAL_ECHO(movesplanned());
+        SERIAL_ECHO((int)movesplanned());
 				SERIAL_ECHO("\n");
 			}
 		}
@@ -2981,7 +2981,6 @@ void process_commands()
 	{
 		const char axs_tmp[] = "XYZABC";
 		bool seen = false;
-		rsp_home_t rsp;
 		SERIAL_ECHO_START;
 		for(int i = 0; i < 6; ++i)
 		{
@@ -2990,10 +2989,8 @@ void process_commands()
 				seen = true;
 				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
-				SERIAL_ECHO(imc_send_home_one(i, &rsp));
-				SERIAL_ECHO(") ");
-				SERIAL_ECHO(rsp.old_position);
-				SERIAL_ECHO("\n");
+				SERIAL_ECHO(imc_send_home_one(i));
+				SERIAL_ECHO(")\n");
 			}
 		}
 		if(!seen)		// home all axes
@@ -3003,10 +3000,8 @@ void process_commands()
 				seen = true;
 				SERIAL_ECHO(axs_tmp[i]);
 				SERIAL_ECHO(": (");
-				SERIAL_ECHO(imc_send_home_one(i, &rsp));
-				SERIAL_ECHO(") ");
-				SERIAL_ECHO(rsp.old_position);
-				SERIAL_ECHO("\n");
+				SERIAL_ECHO(imc_send_home_one(i));
+				SERIAL_ECHO(")\n");
 			}
 		}
 		st_synchronize();
@@ -3036,7 +3031,7 @@ void process_commands()
 		SERIAL_ECHO_START;
 		SERIAL_ECHOLN(imc_send_queue_one(motor, &msg));
 		// wait for move to finish.
-		st_synchronize();
+		//st_synchronize();  //||\\ Fixme
 	}
 	break;
 	case 454: // M454 - Get IMC device parameter. Q: Motor ID, P: parameter ID
@@ -3125,6 +3120,29 @@ void process_commands()
 		}
 	}
 	break;
+  #if IMC_DEBUG_MODE >= 0
+  case 457: // M457 - Set/unset IMC sync line. S - sets the line, U - unset the line, C - check the line
+	{
+		if(code_seen('S'))
+    {
+      imc_sync_set();
+    }
+		if(code_seen('U'))
+    {
+      SERIAL_ECHO((int)imc_sync_release());
+    }
+		if(code_seen('C'))
+    {
+      SERIAL_ECHO((int)imc_sync_check());
+    }
+	}
+	break;
+  case 458: // M458 
+	{
+		st_synchronize();
+	}
+	break;
+  #endif    // IMC_DEBUG_MODE
 	#endif // IMC_ENABLED
 
     case 999: // M999: Restart after being stopped
@@ -3572,12 +3590,12 @@ void manage_inactivity()
     if( (millis() - previous_millis_cmd) >  stepper_inactive_time )
     {
       if(blocks_queued() == false) {
-        disable_x();
-        disable_y();
-        disable_z();
-        disable_e0();
-        disable_e1();
-        disable_e2();
+        //disable_x();
+        //disable_y();
+        //disable_z();
+        //disable_e0();
+        //disable_e1();
+        //disable_e2();
       }
     }
   }
@@ -3621,7 +3639,14 @@ void manage_inactivity()
       handle_status_leds();
   #endif
   check_axes_activity();
+  #ifdef IMC_ENABLED
   imc_balance_queues();
+  if(imc_last_queue_state() > 0)
+  {
+    // moves are queued on the slaves...reset the "previous_millis_cmd" variable to keep things from going asleep.
+    previous_millis_cmd = millis();
+  }
+  #endif
 }
 
 void kill()

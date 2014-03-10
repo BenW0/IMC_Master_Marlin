@@ -55,14 +55,11 @@ typedef struct {
   uint16_t queue_depth;
 } __attribute__ ((packed)) rsp_initialize_t;
 
-typedef struct __attribute__(__packed__)){
+typedef struct {
   uint16_t queued_moves;
   imc_axis_error status;
 } __attribute__ ((packed)) rsp_status_t;
 
-typedef struct {
-  int32_t old_position;
-} __attribute__ ((packed)) rsp_home_t;
 
 //typedef struct {
 //} __attribute__ ((packed)) rsp_queue_move_t;

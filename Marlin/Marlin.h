@@ -174,23 +174,23 @@ void manage_inactivity();
 
 #else   // #ifndef IMC_ENABLED
 
-#define  enable_x() imc_send_set_param_one(0, IMC_PARAM_MOTOR_ON, 1)
-#define disable_x() imc_send_set_param_one(0, IMC_PARAM_MOTOR_ON, 0)
+#define  enable_x() imc_turn_motor_on(0)
+#define disable_x() imc_turn_motor_off(0)
 
-#define  enable_y() imc_send_set_param_one(1, IMC_PARAM_MOTOR_ON, 1)
-#define disable_y() imc_send_set_param_one(1, IMC_PARAM_MOTOR_ON, 0)
+#define  enable_y() imc_turn_motor_on(1)
+#define disable_y() imc_turn_motor_off(1)
 
-#define  enable_z() imc_send_set_param_one(2, IMC_PARAM_MOTOR_ON, 1)
-#define disable_z() imc_send_set_param_one(2, IMC_PARAM_MOTOR_ON, 0)
+#define  enable_z() imc_turn_motor_on(2)
+#define disable_z() imc_turn_motor_off(2)
 
-#define enable_e0() imc_send_set_param_one(3, IMC_PARAM_MOTOR_ON, 1)
-#define disable_e0() imc_send_set_param_one(3, IMC_PARAM_MOTOR_ON, 0)
+#define  enable_e0() imc_turn_motor_on(3)
+#define disable_e0() imc_turn_motor_off(3)
 
-#define enable_e1()  imc_send_set_param_one(4, IMC_PARAM_MOTOR_ON, 1)
-#define disable_e1() imc_send_set_param_one(4, IMC_PARAM_MOTOR_ON, 0)
+#define  enable_e1() imc_turn_motor_on(4)
+#define disable_e1() imc_turn_motor_off(4)
 
-#define enable_e2() imc_send_set_param_one(5, IMC_PARAM_MOTOR_ON, 1)
-#define disable_e2() imc_send_set_param_one(5, IMC_PARAM_MOTOR_ON, 0)
+#define  enable_e2() imc_turn_motor_on(5)
+#define disable_e2() imc_turn_motor_off(5)
 
 #endif  // IMC_ENABLED
 

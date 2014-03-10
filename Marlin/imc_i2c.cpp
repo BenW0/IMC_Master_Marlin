@@ -4,9 +4,15 @@
 
   Matthew Sorensen & Ben Weiss, University of Washington
 
+  TODO: ***** Reset dangerous extrude and lengthy extrude before you use in a real printer ******
   TODO: Replace all tabs by two spaces to conform with the rest of Marlin
   TODO: Figure out how to control endstops - presence vs. enabling.
   TODO: Figure out Autotemp and refactor planner.cpp/check_axis_activity
+  TODO: handle queue full response.
+  TODO: Recover from errors (or start print?) by re-sending init.
+  TODO: fix M119 handler
+  TODO: protocol update for homing
+  TODO: fix slaves out of sync so it re-polls
 
   Questions to answer:
   * Will slaves wait for a sync before homing, or home immediately after message send (my preference)?
@@ -37,14 +43,20 @@ const imc_param_type imc_param_types[IMC_PARAM_COUNT] = IMC_PARAM_TYPES;
 // Local Variables ===================================================================
 bool slave_exists[IMC_MAX_MOTORS];		// is the slave connected?
 uint16_t queue_depth[IMC_MAX_MOTORS];	// What is each slave's queue depth?
-uint16_t moves_queued_guess = 0;            // Set by imc_check_status, incremented when imc_send_queue_move_* is called, and cleared when imc_drain_queue or imc_flush_queue is called.
 uint16_t imc_queue_depth;				// minimum slave queue depth
+uint16_t moves_queued_guess = 0;            // Set by imc_check_status, incremented when imc_send_queue_move_* is called, and cleared when imc_drain_queue or imc_flush_queue is called.
+bool motor_off[IMC_MAX_MOTORS];       // used to keep track of whether motors are disabled or not.
 
 // Local Function Predeclares ========================================================
 uint16_t imc_push_blocks(uint16_t blocks_to_push);
 imc_return_type imc_send_quickstop_one(uint8_t motor_id, uint8_t retries = 3);
 imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t *payload, uint8_t payload_len, uint8_t *resp, uint8_t resp_len, uint8_t retries);
 uint8_t checksum(const uint8_t *data, uint8_t len, uint8_t startval = 0);
+
+//FORCE_INLINE uint8_t max8(uint8_t a, uint8_t b) {return a > b ? a : b;}
+// We need a max macro that doesn't execute x or y multiple times.
+#define safemax(x, y)     ({typeof(x) _x = (x); typeof(y) _y = (y); _x > _y ? _x : _y;})
+
 
 // Function Implementations =========================================================
 
@@ -54,6 +66,7 @@ uint8_t imc_init(void)
 	uint16_t slave_hw_ver, slave_fw_ver;
 	uint8_t i;
 	imc_return_type ret;
+
 	Wire.begin();
 	// deactivate internal pullups. There are already hardware pullups in place.
 	digitalWrite(SDA, 0);
@@ -72,13 +85,14 @@ uint8_t imc_init(void)
 	for(i = 0; i < IMC_MAX_MOTORS; ++i)
 	{
 		slave_exists[i] = true;		// if false, the function call will fail.
+    motor_off[i] = false;
 		ret = imc_send_init_one(i, &params, &resp, 5);
 		if(IMC_RET_SUCCESS == ret)
 		{
 			num_worked++;
 			queue_depth[i] = resp.queue_depth;
 			imc_queue_depth = min(imc_queue_depth, queue_depth[i]);
-			#ifdef IMC_DEBUG_MODE
+			#if IMC_DEBUG_MODE > 0
 				SERIAL_ECHO("IMC Axis ");
 				SERIAL_ECHO((int)i);
 				SERIAL_ECHOLN(" worked!");
@@ -86,7 +100,7 @@ uint8_t imc_init(void)
 		}
 		else
 		{
-			#ifdef IMC_DEBUG_MODE
+			#if IMC_DEBUG_MODE > 0
 				SERIAL_ECHO("IMC Axis ");
 				SERIAL_ECHO((int)i);
 				SERIAL_ECHO(" returned ");
@@ -114,28 +128,28 @@ uint8_t imc_init(void)
 	{
 		i = 0;
 		ret = IMC_RET_SUCCESS;
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_X_DIR));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, X_HOME_DIR));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, min_software_endstops));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, max_software_endstops));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, min_limit_en));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, X_MIN_ENDSTOP_INVERTING));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_X_DIR));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, X_HOME_DIR > 0 ? 1 : 0));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, min_software_endstops));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, max_software_endstops));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, min_limit_en));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, X_MIN_ENDSTOP_INVERTING));
 		#ifdef ENDSTOPPULLUP_XMIN
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, 1));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, IMC_PULLUP));
 		#else
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, IMC_NO_PULL));
 		#endif
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, max_limit_en));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, X_MAX_ENDSTOP_INVERTING));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, max_limit_en));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, X_MAX_ENDSTOP_INVERTING));
 		#ifdef ENDSTOPPULLUP_XMAX
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, 1));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, IMC_PULLUP));
 		#else
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, IMC_NO_PULL));
 		#endif
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, X_MIN_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, X_MAX_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, X_HOME_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, X_MIN_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, X_MAX_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, X_HOME_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
 		if( IMC_RET_SUCCESS != ret )
 		{
 			SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
@@ -153,28 +167,28 @@ uint8_t imc_init(void)
 	{
 		i = 1;
 		ret = IMC_RET_SUCCESS;
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_Y_DIR));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, Y_HOME_DIR));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, min_software_endstops));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, max_software_endstops));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, min_limit_en));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, Y_MIN_ENDSTOP_INVERTING));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_Y_DIR));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, Y_HOME_DIR > 0 ? 1 : 0));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, min_software_endstops));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, max_software_endstops));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, min_limit_en));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, Y_MIN_ENDSTOP_INVERTING));
 		#ifdef ENDSTOPPULLUP_YMIN
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, 1));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, IMC_PULLUP));
 		#else
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, IMC_NO_PULL));
 		#endif
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, max_limit_en));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, Y_MAX_ENDSTOP_INVERTING));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, max_limit_en));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, Y_MAX_ENDSTOP_INVERTING));
 		#ifdef ENDSTOPPULLUP_YMAX
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, 1));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, IMC_PULLUP));
 		#else
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, IMC_NO_PULL));
 		#endif
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, Y_MIN_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, Y_MAX_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, Y_HOME_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, Y_MIN_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, Y_MAX_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, Y_HOME_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
 		if( IMC_RET_SUCCESS != ret )
 		{
 			SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
@@ -191,28 +205,28 @@ uint8_t imc_init(void)
 	{
 		i = 2;
 		ret = IMC_RET_SUCCESS;
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_Z_DIR));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, Z_HOME_DIR));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, min_software_endstops));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, max_software_endstops));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, min_limit_en));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, Z_MIN_ENDSTOP_INVERTING));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_Z_DIR));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, Z_HOME_DIR > 0 ? 1 : 0));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, min_software_endstops));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, max_software_endstops));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, min_limit_en));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, Z_MIN_ENDSTOP_INVERTING));
 		#ifdef ENDSTOPPULLUP_ZMIN
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, 1));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, IMC_PULLUP));
 		#else
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, IMC_NO_PULL));
 		#endif
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, max_limit_en));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, Z_MAX_ENDSTOP_INVERTING));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, max_limit_en));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, Z_MAX_ENDSTOP_INVERTING));
 		#ifdef ENDSTOPPULLUP_ZMAX
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, 1));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, IMC_PULLUP));
 		#else
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, IMC_NO_PULL));
 		#endif
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, Z_MIN_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, Z_MAX_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, Z_HOME_POS));
-		ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, Z_MIN_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, Z_MAX_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, Z_HOME_POS));
+		ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, (uint32_t)((float)homing_feedrate[i] * axis_steps_per_unit[i])));
 		if( IMC_RET_SUCCESS != ret )
 		{
 			SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
@@ -231,25 +245,25 @@ uint8_t imc_init(void)
 		{
 			ret = IMC_RET_SUCCESS;
 			if(3 == i)
-				ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_E0_DIR));
+				ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_E0_DIR));
 			else if(4 == i)
-				ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_E1_DIR));
+				ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_E1_DIR));
 			else if(5 == i)
-				ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_E2_DIR));
+				ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_FLIP_AXIS, INVERT_E2_DIR));
 
-			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, Z_HOME_DIR));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, 0));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, 0));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, 0));
-			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, Z_MIN_ENDSTOP_INVERTING));
-			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, ENDSTOPPULLUP_ZMIN));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, 0));
-			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, Z_MAX_ENDSTOP_INVERTING));
-			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, ENDSTOPPULLUP_ZMAX));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, 0));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, 0));
-			//ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, 0));
-			ret = max(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, 0));
+			//ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_DIR, Z_HOME_DIR));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_SOFTWARE_ENDSTOPS, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_SOFTWARE_ENDSTOPS, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_EN, 0));
+			//ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_INV, Z_MIN_ENDSTOP_INVERTING));
+			//ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_LIMIT_PULLUP, ENDSTOPPULLUP_ZMIN));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_EN, 0));
+			//ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_INV, Z_MAX_ENDSTOP_INVERTING));
+			//ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_LIMIT_PULLUP, ENDSTOPPULLUP_ZMAX));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MIN_POS, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_MAX_POS, 0));
+			//ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOME_POS, 0));
+			ret = safemax(ret, imc_send_set_param_one(i, IMC_PARAM_HOMING_FEEDRATE, 0));
 			if( IMC_RET_SUCCESS != ret )
 			{
 				SERIAL_ECHOPGM(MSG_IMC_INIT_ERROR);
@@ -293,18 +307,23 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
 {
   imc_return_type ret = IMC_RET_SUCCESS;
   rsp_status_t rsp;
-  uint16_t min_queue = 0xffff, max_queue = 0;;
+  uint16_t min_queue = 0xffff, max_queue = 0;
+
+#if IMC_DEBUG_MODE >= 7
+  SERIAL_ECHOLN("IMC In Check Status");
+#endif
+
   for(uint8_t i = 0; i < IMC_MAX_MOTORS; ++i)
   {
     if(slave_exists[i])
     {
-      ret = max(ret, imc_send_status_one(i, &rsp));
+      ret = safemax(ret, imc_send_status_one(i, &rsp));
       if(NULL != axis_errors)
         axis_errors[i] = rsp.status;
       if(!ret)
       {
         min_queue = min(min_queue, rsp.queued_moves);
-        max_queue = max(max_queue, rsp.queued_moves);
+        max_queue = safemax(max_queue, rsp.queued_moves);
       }
     }
     if(NULL != axis_errors)
@@ -318,11 +337,61 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
   return ret;
 }
 
+// imc_turn_motor_on/imc_turn_motor_off
+// Tells the slave <motor_id> to turn its motor on/off, if it isn't already.
+// This routine caches the previous motor state to avoid repeated "turn on" or "turn off" calls.
+// to explicitly send the "motor on" command, use imc_send_set_param_one(motor_id, IMC_PARAM_MOTOR_ON, 1).
+// Params: motor_id - motor id.
+// Return: success = 0, else error.
+imc_return_type imc_turn_motor_on(uint8_t motor_id)
+{
+  imc_return_type ret = IMC_RET_SUCCESS;
+  if(motor_id < IMC_MAX_MOTORS && slave_exists[motor_id] && motor_off[motor_id])
+  {
+    ret = imc_send_set_param_one(motor_id, IMC_PARAM_MOTOR_ON, 1);
+    if(!ret)
+      motor_off[motor_id] = false;
+#if IMC_DEBUG_MODE > 0
+    else
+    {
+      SERIAL_ECHOPGM("Failed to turn motor ");
+      SERIAL_ECHO((int)motor_id);
+      SERIAL_ECHO(" on. Error ");
+      SERIAL_ECHOLN((int)ret);
+    }
+#endif
+  }
+  return ret;
+}
+imc_return_type imc_turn_motor_off(uint8_t motor_id)
+{
+  imc_return_type ret = IMC_RET_SUCCESS;
+  if(motor_id < IMC_MAX_MOTORS && slave_exists[motor_id] && !motor_off[motor_id])
+  {
+    ret = imc_send_set_param_one(motor_id, IMC_PARAM_MOTOR_ON, 0);
+    if(!ret)
+      motor_off[motor_id] = true;
+#if IMC_DEBUG_MODE > 0
+    else
+    {
+      SERIAL_ECHOPGM("Failed to turn motor ");
+      SERIAL_ECHO((int)motor_id);
+      SERIAL_ECHO(" off. Error ");
+      SERIAL_ECHOLN((int)ret);
+    }
+#endif
+  }
+  return ret;
+}
+
 
 // synchronization pin commands
 // imc_sync_set - sets the synchronization line low
 void imc_sync_set()
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("Sync Set");
+#endif
 	pinMode(IMC_SYNC_PIN, OUTPUT);
 	digitalWrite(IMC_SYNC_PIN, LOW);
 }
@@ -330,6 +399,9 @@ void imc_sync_set()
 // imc_sync_release - tristates the sync pin and returns the value read.
 bool imc_sync_release()
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("Sync Release");
+#endif
 	pinMode(IMC_SYNC_PIN, INPUT);
 	return (bool)digitalRead(IMC_SYNC_PIN);
 }
@@ -358,6 +430,11 @@ imc_return_type imc_balance_queues(void)
   bool slave_out_of_sync = false;
   imc_return_type ret = IMC_RET_SUCCESS;
 
+  // Quit if master has no queued moves.
+  planner_blocks = movesplanned();
+  if(0 == planner_blocks)
+    return IMC_RET_SUCCESS;
+
   // first, get the number of blocks in the slave queue
   ret = imc_check_status(NULL, &slave_blocks, &slave_out_of_sync);
   if(ret)   // error state!
@@ -376,7 +453,7 @@ imc_return_type imc_balance_queues(void)
     }
     return ret;
   }
-#ifdef IMC_DEBUG_MODE
+#if IMC_DEBUG_MODE > 0
   if(slave_out_of_sync)
   {
     SERIAL_ECHO_START;
@@ -384,9 +461,9 @@ imc_return_type imc_balance_queues(void)
   }
 #endif
   moves_queued_guess = slave_blocks;
+  if(slave_blocks)
 
-  // now, get the # of blocks in the planner queue
-  planner_blocks = movesplanned();
+
 
   // if we have no moves presently planned, set the sync pin so slaves don't start when we queue new moves.
   if(slave_blocks == 0)
@@ -396,7 +473,7 @@ imc_return_type imc_balance_queues(void)
   if(slave_blocks < IMC_QUEUE_LOW_THRESH)
   {
     // push blocks to the slave as fast as possible!
-    moves_queued_guess += imc_push_blocks(IMC_QUEUE_LOW_THRESH - slave_blocks);
+    moves_queued_guess += imc_push_blocks(min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks));
     
   }
   else
@@ -429,6 +506,19 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
 
   msg_queue_move_t move_data[IMC_MAX_MOTORS];
 
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOPGM("In Push. Planner: ");
+  SERIAL_ECHO((int)movesplanned());
+  SERIAL_ECHOPGM(" Slaves: ");
+  SERIAL_ECHO((int)moves_queued_guess);
+  SERIAL_ECHOPGM(" Pushing: ");
+  SERIAL_ECHOLN((int)blocks_to_push);
+#endif
+
+  // all motors will turn on.
+  for(uint8_t i = 0; i < IMC_MAX_MOTORS; i++)
+    motor_off[i] = false;
+
   for(uint16_t block = 0; block < blocks_to_push; ++block)
   {
     // get the current block
@@ -441,26 +531,61 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
       for(uint8_t k = 0; k < IMC_MAX_MOTORS; k++)
       {
         // the IMC motor controllers work in steps/min or steps/min^2
-        move_data[k].acceleration = current_block->acceleration_st * 60 * 60;   // steps/min^2
-        move_data[k].final_rate = current_block->final_rate;               // steps/min
-        move_data[k].initial_rate = current_block->initial_rate;         // steps/min
-        move_data[k].nominal_rate = current_block->nominal_rate;         // steps/min
+        move_data[k].acceleration = current_block->acceleration_st;   // steps/min^2 //||\\ check this
+        move_data[k].final_rate = current_block->final_rate*60;               // steps/min
+        move_data[k].initial_rate = current_block->initial_rate*60;         // steps/min
+        move_data[k].nominal_rate = current_block->nominal_rate*60;         // steps/min
         move_data[k].start_decelerating = current_block->decelerate_after;
         move_data[k].stop_accelerating = current_block->accelerate_until;
         move_data[k].total_length = current_block->step_event_count;
         move_data[k].length = 0;
       }
-      move_data[0].length = current_block->steps_x;
-      move_data[1].length = current_block->steps_y;
-      move_data[2].length = current_block->steps_z;
-      move_data[3].length = current_block->steps_e;
+      #if IMC_DEBUG_MODE > 4
+      SERIAL_ECHOPAIR("Accel: ", (long unsigned int)current_block->acceleration_st);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Final Rate: ", (long unsigned int)current_block->final_rate*60);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Initial Rate: ", (long unsigned int)current_block->initial_rate*60);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Nominal Rate: ", (long unsigned int)current_block->nominal_rate*60);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Start Decel: ", (long unsigned int)current_block->decelerate_after);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Stop Accel: ", (long unsigned int)current_block->accelerate_until);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Length: ", (long unsigned int)current_block->step_event_count);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("X Length: ", (float)current_block->steps_x);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Y Length: ", (float)current_block->steps_y);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("Z Length: ", (float)current_block->steps_z);
+      SERIAL_ECHOLN("");
+      SERIAL_ECHOPAIR("E Length: ", (float)current_block->steps_e);
+      SERIAL_ECHOLN("");
+      #endif
+      move_data[0].length = ((current_block->direction_bits & (1<<X_AXIS)) ? -1 : 1) * current_block->steps_x;
+      move_data[1].length = ((current_block->direction_bits & (1<<Y_AXIS)) ? -1 : 1) * current_block->steps_y;
+      move_data[2].length = ((current_block->direction_bits & (1<<Z_AXIS)) ? -1 : 1) * current_block->steps_z;
+      move_data[3].length = current_block->steps_e;   //||\\ TODO: Select active extruder not just default
+      
 
       // push this block to the slaves
-      imc_send_queue_all(move_data);
-      blocks_pushed++;
+      if(IMC_RET_SUCCESS == imc_send_queue_all(move_data))
+      {
+        blocks_pushed++;
+        // finish with the current block
+        plan_discard_current_block();
+      }
+      else
+      {
+        // signal that we failed to queue and leave the block on the planner queue for future replan.
+        #if IMC_DEBUG_MODE > 0
+          SERIAL_ECHOLNPGM("Failed to push block to slaves!");
+        #endif
+        current_block->busy = false;
+      }
 
-      // finish with the current block
-      plan_discard_current_block();
     }
   }
   return blocks_pushed;
@@ -477,42 +602,80 @@ imc_return_type imc_drain_queues(void)
 {
   imc_return_type ret = IMC_RET_SUCCESS;
   uint16_t queued_moves = 1;
+
+#if IMC_DEBUG_MODE >=6 
+  SERIAL_ECHOPGM("In Drain Queues. moves_queued_guess: ");
+  SERIAL_ECHOLN((int)moves_queued_guess);
+#endif
+
   // check - are queues already empty?
-  if(moves_queued_guess)
+  if(movesplanned() == 0)
   {
-    ret = imc_check_status(NULL, &queued_moves, NULL);
-    if(!ret)    // continue only if no errors
-	  {
-      if(queued_moves == 0)
-      {
-        // nothing to be done. We're already drained.
-        moves_queued_guess = 0;
-        return ret;
-      }
-	  }
-	  else
-		  // error condition
-		  return ret;
+    if(moves_queued_guess)
+    {
+      ret = imc_check_status(NULL, &queued_moves, NULL);
+      if(!ret)    // continue only if no errors
+	    {
+        if(0 == queued_moves)
+        {
+          // no more queued moves; wait for any executing moves to be done.
+          moves_queued_guess = 0;
+        }
+	    }
+	    else
+		    // error condition
+		    return ret;
+    }
+    else
+      // we already know the queue is empty
+      return IMC_RET_SUCCESS;
   }
-  else
-    // we already know the queue is empty
-    return IMC_RET_SUCCESS;
 
   // make sure the sync line is released --> slaves can move
   imc_sync_release();
 
   // idle waiting for queues to empty.
-  while(queued_moves)
+  while(queued_moves || movesplanned())
   {
 	  ret = imc_check_status(NULL, &queued_moves);
     if(ret)   // error condition
+    {
+      // stop further movement
+      imc_sync_set();
+      SERIAL_ECHOLN("Error when draining queues!");
       return ret;
+    }
     moves_queued_guess = queued_moves;
 	  manage_heater();
-	  manage_inactivity();
+	  manage_inactivity();    // may reload the queues
 	  lcd_update();
   }
 
+  // now there are no queued moves; wait for the sync line to go high.
+  delay(200);
+
+  // wait for a while...
+  for(uint16_t i = 0; i < 1000; i++)
+  {
+	  manage_heater();
+	  manage_inactivity();
+	  lcd_update();
+
+    if(imc_sync_check())
+      break;
+
+    delay(50);
+  }
+  if(!imc_sync_check())
+  {
+    SERIAL_ERRORLN("Marlin timed out waiting for all moves to finish!");
+  }
+
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("Drain done");
+#endif
+
+  imc_sync_set();   // keep future moves from executing until we're ready
   moves_queued_guess = 0;
 }
 
@@ -520,6 +683,11 @@ imc_return_type imc_drain_queues(void)
 // Forces motion stop and deletes all entries in build queues. Used when cancelling a build. This function shadows stepper.cpp/quickStop
 void imc_quick_stop(void)
 {
+  
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC Quick Stop");
+#endif
+
   while(blocks_queued())
     plan_discard_current_block();
   current_block = NULL;
@@ -581,7 +749,7 @@ imc_return_type imc_send_init_all(const msg_initialize_t *params, rsp_initialize
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_init_one(i, params, &resps[i], retries));
+			ret = safemax(ret, imc_send_init_one(i, params, &resps[i], retries));
   moves_queued_guess = 0;
 	return ret;
 }
@@ -603,6 +771,10 @@ imc_return_type imc_send_init_one(uint8_t motor_id, uint16_t *slave_hw_ver, uint
 
 imc_return_type imc_send_init_one(uint8_t motor_id, const msg_initialize_t *params, rsp_initialize_t *resp, uint8_t retries )
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC In Send Init");
+#endif
+  motor_off[motor_id] = false;
 	return do_txrx( motor_id, IMC_MSG_INITIALIZE, (const uint8_t *)params, sizeof(msg_initialize_t), (uint8_t*)resp, 
 			sizeof(rsp_initialize_t), retries);
 }
@@ -619,12 +791,15 @@ imc_return_type imc_send_status_all(rsp_status_t resps[IMC_MAX_MOTORS], uint8_t 
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_status_one(i, &resps[i], retries));
+			ret = safemax(ret, imc_send_status_one(i, &resps[i], retries));
 	return ret;
 }
 // Same as above, but sending to only one motor.
 imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_t retries )
 {
+#if IMC_DEBUG_MODE >= 7
+  SERIAL_ECHOLN("IMC In Send Status");
+#endif
 	return do_txrx( motor_id, IMC_MSG_STATUS, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
 			sizeof(rsp_status_t), retries);
 }
@@ -637,29 +812,23 @@ imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_
 // Returns:
 //   function return - success(0)/error code
 //   resps - filled by the function with the response structures of the motors (only for motors that are enabled).
-imc_return_type imc_send_home_all(rsp_home_t resps[IMC_MAX_MOTORS], uint8_t retries )
+imc_return_type imc_send_home_all(uint8_t retries )
 {
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_home_one(i, &resps[i], retries));
+			ret = safemax(ret, imc_send_home_one(i, retries));
 	return ret;
 }
-// Same as above, but only one motor. pass NULL to old_position to ignore it.
-imc_return_type imc_send_home_one(uint8_t motor_id, int32_t *old_position, uint8_t retries)
-{
-	rsp_home_t resp;
-  imc_return_type ret;
-  ret = imc_send_home_one(motor_id, &resp, retries);
-  if(NULL != old_position)
-    *old_position = resp.old_position;
-  return ret;
-}
 // Same as above, but only one motor.
-imc_return_type imc_send_home_one(uint8_t motor_id, rsp_home_t *resp, uint8_t retries )
+imc_return_type imc_send_home_one(uint8_t motor_id, uint8_t retries )
 {
-	return do_txrx( motor_id, IMC_MSG_HOME, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
-			sizeof(rsp_home_t), retries);
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC In Send Home");
+#endif
+  motor_off[motor_id] = false;
+	return do_txrx( motor_id, IMC_MSG_HOME, (const uint8_t *)NULL, 0, (uint8_t*)NULL, 
+			0, retries);
 }
 
 // Send Queue Move message
@@ -673,15 +842,22 @@ imc_return_type imc_send_queue_all(const msg_queue_move_t params[IMC_MAX_MOTORS]
 {
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
+  {
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_queue_one(i, &params[i], retries));
-  moves_queued_guess++;   // signal that the queue may be full now...
+			ret = safemax(ret, imc_send_queue_one(i, &params[i], retries));
+  }
+  ++moves_queued_guess;   // signal that the queue may be full now...
 	return ret;
 }
 // Same as above, but for only one motor. DO NOT USE this function for normal operation, or estimates of queue capacity will
 // be affected. It is made public only for debug and special code M453.
 imc_return_type imc_send_queue_one(uint8_t motor_id, const msg_queue_move_t *params, uint8_t retries )
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOPGM("IMC In Queue motor ");
+  SERIAL_ECHOLN((int)motor_id);
+#endif
+  if(!moves_queued_guess) moves_queued_guess = 1;
 	return do_txrx( motor_id, IMC_MSG_QUEUEMOVE, (const uint8_t *)params, sizeof(msg_queue_move_t), (uint8_t*)NULL, 
 			0, retries);
 }
@@ -699,12 +875,15 @@ imc_return_type imc_send_get_param_all(imc_axis_parameter param_id, uint32_t val
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_get_param_one(i, param_id, &values[i], retries));
+			ret = safemax(ret, imc_send_get_param_one(i, param_id, &values[i], retries));
 	return ret;
 }
 // Same as above, but for just one motor.
 imc_return_type imc_send_get_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t *value, uint8_t retries )
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC In Get Param");
+#endif
 	return do_txrx( motor_id, IMC_MSG_GETPARAM, (const uint8_t *)&param_id, sizeof(uint8_t), (uint8_t*)value, 
 			sizeof(uint32_t), retries);
 }
@@ -722,15 +901,20 @@ imc_return_type imc_send_set_param_all(imc_axis_parameter param_id, uint32_t val
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_set_param_one(i, param_id, value, retries));
+			ret = safemax(ret, imc_send_set_param_one(i, param_id, value, retries));
 	return ret;
 }
 // Same as above, but for one motor
 imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t value, uint8_t retries )
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC In Set Param");
+#endif
 	msg_set_param_t msg;
 	msg.param_id = param_id;
 	msg.param_value = value;
+  if(param_id == IMC_PARAM_MOTOR_ON)
+    motor_off[motor_id] = value ? false : true;
 	return do_txrx( motor_id, IMC_MSG_SETPARAM, (const uint8_t *)&msg, sizeof(msg_set_param_t), (uint8_t*)NULL, 
 			0, retries);
 }
@@ -746,13 +930,16 @@ imc_return_type imc_send_quickstop_all(uint8_t retries)
 	imc_return_type ret = IMC_RET_SUCCESS;
 	for( uint8_t i = 0; i < IMC_MAX_MOTORS; ++i )
 		if( slave_exists[i] )
-			ret = max(ret, imc_send_quickstop_one(i, retries));
+			ret = safemax(ret, imc_send_quickstop_one(i, retries));
   moves_queued_guess = 0;
 	return ret;
 }
 // Same as above, but for one motor. This is private (all quickstops should apply to all motors)
 imc_return_type imc_send_quickstop_one(uint8_t motor_id, uint8_t retries)
 {
+#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC In Quickstop");
+#endif
 	return do_txrx( motor_id, IMC_MSG_QUICKSTOP, (const uint8_t *)NULL, 0, (uint8_t*)NULL, 
 			0, retries);
 }
@@ -765,7 +952,7 @@ imc_return_type imc_send_quickstop_one(uint8_t motor_id, uint8_t retries)
 // <motor> is not _true_ in slave_exists[].
 // 
 // Params: 
-//   motor - motor id to use. Must be 0<motor<IMC_MAX_MOTORS
+//   motor - motor id to use. Must be 0<=motor<IMC_MAX_MOTORS
 //   msg_type - message type byte. Must be from the enum imc_message_type.
 //   payload - the message payload (from one of the msg_* structures in imc_i2c_message_structs.h)
 //   payload_len - length of payload, bytes.
@@ -784,7 +971,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 	uint8_t checkval, respcode, respcheck;
 
 	// sanity check - motor id valid?
-	if( motor > IMC_MAX_MOTORS || !slave_exists[motor] )
+	if( motor >= IMC_MAX_MOTORS || !slave_exists[motor] )
 		return IMC_RET_PARAM_ERROR;
 
 	// create the packet checksum
@@ -794,26 +981,80 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 	// send packet
 	for( uint8_t i = 0; i < retries && ret != IMC_RET_SUCCESS; ++i )
 	{
+    
+#if IMC_DEBUG_MODE >= 4
+    if(i > 0)
+      SERIAL_ECHOLN("IMC Tx Retry");
+#endif
+#if IMC_DEBUG_MODE >= 10
+
+    SERIAL_ECHOLN("");
+    SERIAL_ECHO("Tx:");
+    MYSERIAL.print(msg_type, 16);
+    SERIAL_ECHO("-");
+    for(uint8_t k = 0; k < payload_len; k++)
+    {
+      MYSERIAL.print((int)payload[k], 16);
+      SERIAL_ECHO("-");
+    }
+    MYSERIAL.print(checkval, 16);
+    SERIAL_ECHOLN("");
+#endif
+
 		Wire.beginTransmission(slave_addr);
 		Wire.write(msg_type);			// send the header
-		Wire.write(payload, payload_len);	// send the payload
-		Wire.write(checkval);			// send the checksum
-		switch(Wire.endTransmission())    // done transmitting.
+    Wire.write(payload, min(payload_len, BUFFER_LENGTH - 1));
+    respcode = 0;
+    // BUFFER_LENGTH is the Wire library buffer length.
+    if(payload_len > BUFFER_LENGTH - 1)
+    {
+      for(uint8_t k = BUFFER_LENGTH - 1; k < payload_len; k += BUFFER_LENGTH)
+      {
+        respcode = safemax(respcode, Wire.endTransmission());    // end transmission
+        Wire.beginTransmission(slave_addr);
+        Wire.write(payload + k, min(payload_len - k, BUFFER_LENGTH));
+      }
+    }
+		if(!Wire.write(checkval))			// send the checksum
+    {
+      // buffer is full. End and restart the transmission and send again.
+      respcode = safemax(respcode, Wire.endTransmission());
+      Wire.beginTransmission(slave_addr);
+      Wire.write(checkval);
+    }
+    // done transmitting
+    respcode = safemax(respcode, Wire.endTransmission());
+		switch(respcode)    // check for transmission errors
 		{
 		case 0:				// success
 			break;
 		case 1: case 4:		// issues with the parameters. Won't be able to send this packet
+#if IMC_DEBUG_MODE >= 4
+      SERIAL_ECHOLN("Wire.endTransmission() failed on 1 or 4");
+#endif
 			return IMC_RET_PARAM_ERROR;
 			break;
 		default:			// 2 and 3 are communication issues. Try again.
+#if IMC_DEBUG_MODE >= 10
+      SERIAL_ECHO("Source 1. Motor ");
+      SERIAL_ECHOLN((char)motor + '0');
+#endif
 			ret = IMC_RET_COMM_ERROR;
 			continue;		// retry (go to top. do not pass go. do not collect $200).
 		}
 		
-		// read response. Will try <retries> times until we get a clean transmission.
+
+
+		// Read Response. Will try <retries> times until we get a clean transmission.
 		ret = IMC_RET_COMM_ERROR;
 		for( uint8_t j = 0; j < retries; ++j )
 		{
+      
+#if IMC_DEBUG_MODE >= 4
+    if(j > 0)
+      SERIAL_ECHOLN("IMC Rx Retry");
+#endif
+
 			// read back the response - we will need resp_len + 2 because of the added response byte and checksum.
 			Wire.requestFrom(slave_addr, (uint8_t)(resp_len + 2));
         
@@ -822,6 +1063,9 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			if( Wire.available() < resp_len + 2 )
 			{
 				ret = IMC_RET_COMM_ERROR;
+        #if IMC_DEBUG_MODE >= 10
+          SERIAL_ECHOLN("Source 2");
+        #endif
 				continue;
 			}
 
@@ -830,11 +1074,26 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			Wire.readBytes((char*)resp, resp_len);
 			respcheck = Wire.read();
 
+#if IMC_DEBUG_MODE >= 10
+      SERIAL_ECHOLN("");
+      SERIAL_ECHO("Rcv:");
+      MYSERIAL.print(respcode, 16);
+      SERIAL_ECHO("-");
+      for(uint8_t k = 0; k < resp_len; k++)
+      {
+        MYSERIAL.print((int)resp[k], 16);
+        SERIAL_ECHO("-");
+      }
+      MYSERIAL.print(respcheck, 16);
+      SERIAL_ECHOLN("");
+#endif
+
       // check for explicit comm error (buffer mismatch)
       if(IMC_RSP_COMM_ERROR == respcode)
       {
         // something is horribly wrong!
         ret = IMC_RET_COMM_ERROR;
+        SERIAL_ECHOLN("Source 3");
         continue;
       }
 		  
@@ -853,10 +1112,17 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			if( respcheck != checkval )
 			{
 				ret = IMC_RET_COMM_ERROR;
+        SERIAL_ECHOLN("Source 4");
 				continue;
 			}
+      
 
 			ret = (imc_return_type)(respcode-1);    // adjust for communication errors
+
+#if IMC_DEBUG_MODE >= 4
+      if(ret != IMC_RET_SUCCESS)
+        SERIAL_ECHOPAIR("Resp: ", (long unsigned int)respcode);
+#endif
 
 			break;	// successful read. Finish loop.
 		}
@@ -873,6 +1139,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			return ret;
 			break;
 		default :		// transmission error occurred. Retransmit original packet.
+      SERIAL_ECHOPAIR("Source 5:",(long unsigned int)respcode);
 			continue;
 		}
 		
