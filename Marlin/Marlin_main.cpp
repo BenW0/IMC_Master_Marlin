@@ -2209,6 +2209,24 @@ void process_commands()
       break;
     case 119: // M119
     SERIAL_PROTOCOLLN(MSG_M119_REPORT);
+    #ifdef IMC_ENABLED
+      SERIAL_PROTOCOLPGM(MSG_X_MIN);
+      if(!imc_send_get_param_one(X_AXIS, IMC_PARAM_MIN_LIMIT_STATE, (uint32_t*)&codenum))
+        SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
+      else
+        SERIAL_PROTOCOLLN("Error");
+      SERIAL_PROTOCOLPGM(MSG_Y_MIN);
+      if(!imc_send_get_param_one(Y_AXIS, IMC_PARAM_MIN_LIMIT_STATE, (uint32_t*)&codenum))
+        SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
+      else
+        SERIAL_PROTOCOLLN("Error");
+      SERIAL_PROTOCOLPGM(MSG_Z_MIN);
+      if(!imc_send_get_param_one(Z_AXIS, IMC_PARAM_MIN_LIMIT_STATE, (uint32_t*)&codenum))
+        SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
+      else
+        SERIAL_PROTOCOLLN("Error");
+
+    #else
       #if defined(X_MIN_PIN) && X_MIN_PIN > -1
         SERIAL_PROTOCOLPGM(MSG_X_MIN);
         SERIAL_PROTOCOLLN(((READ(X_MIN_PIN)^X_MIN_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
@@ -2233,6 +2251,7 @@ void process_commands()
         SERIAL_PROTOCOLPGM(MSG_Z_MAX);
         SERIAL_PROTOCOLLN(((READ(Z_MAX_PIN)^Z_MAX_ENDSTOP_INVERTING)?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN));
       #endif
+    #endif    // !IMC_ENABLED
       break;
       //TODO: update for all axis, use for loop
     #ifdef BLINKM  

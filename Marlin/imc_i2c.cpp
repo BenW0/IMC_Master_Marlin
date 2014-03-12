@@ -1035,9 +1035,9 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			return IMC_RET_PARAM_ERROR;
 			break;
 		default:			// 2 and 3 are communication issues. Try again.
-#if IMC_DEBUG_MODE >= 10
-      SERIAL_ECHO("Source 1. Motor ");
-      SERIAL_ECHOLN((char)motor + '0');
+#if IMC_DEBUG_MODE >= 8
+      SERIAL_ECHO("Tx Wire error. Motor ");
+      SERIAL_ECHOLN((char)motor);
 #endif
 			ret = IMC_RET_COMM_ERROR;
 			continue;		// retry (go to top. do not pass go. do not collect $200).
@@ -1063,8 +1063,8 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			if( Wire.available() < resp_len + 2 )
 			{
 				ret = IMC_RET_COMM_ERROR;
-        #if IMC_DEBUG_MODE >= 10
-          SERIAL_ECHOLN("Source 2");
+        #if IMC_DEBUG_MODE >= 8
+          SERIAL_ECHOLN("Not Enough Bytes");
         #endif
 				continue;
 			}
@@ -1093,7 +1093,9 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
       {
         // something is horribly wrong!
         ret = IMC_RET_COMM_ERROR;
-        SERIAL_ECHOLN("Source 3");
+        #if IMC_DEBUG_MODE > 8
+          SERIAL_ECHOLN("Slave returned nonsense");
+        #endif
         continue;
       }
 		  
@@ -1112,7 +1114,9 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			if( respcheck != checkval )
 			{
 				ret = IMC_RET_COMM_ERROR;
-        SERIAL_ECHOLN("Source 4");
+        #if IMC_DEBUG_MODE >= 8
+          SERIAL_ECHOLN("Receiving Checksum failed");
+        #endif
 				continue;
 			}
       
@@ -1139,7 +1143,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			return ret;
 			break;
 		default :		// transmission error occurred. Retransmit original packet.
-      SERIAL_ECHOPAIR("Source 5:",(long unsigned int)respcode);
+      SERIAL_ECHOPAIR("Slave Error:",(long unsigned int)respcode);
 			continue;
 		}
 		
