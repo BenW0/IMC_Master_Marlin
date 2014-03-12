@@ -21,7 +21,7 @@
 
 #include <Wire.h>
 #include "imc_i2c.h"
-#include "marlin.h"
+#include "Marlin.h"
 #include "Configuration.h"
 #include "planner.h"
 #include "imc_i2c_message_structs.h"
