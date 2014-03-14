@@ -992,11 +992,15 @@ static void homeaxis(int axis) {
 #define HOMEAXIS_DO(LETTER) \
   ((LETTER##_MIN_PIN > -1 && LETTER##_HOME_DIR==-1) || (LETTER##_MAX_PIN > -1 && LETTER##_HOME_DIR==1))
 
+#ifdef IMC_ENABLED
+  if (axis==X_AXIS || axis==Y_AXIS || axis==Z_AXIS) {
+#else
   if (axis==X_AXIS ? HOMEAXIS_DO(X) :
       axis==Y_AXIS ? HOMEAXIS_DO(Y) :
       axis==Z_AXIS ? HOMEAXIS_DO(Z) :
       0) {
     int axis_home_dir = home_dir(axis);
+#endif		// IMC_ENABLED
 #ifdef DUAL_X_CARRIAGE
     if (axis == X_AXIS)
       axis_home_dir = x_home_dir(active_extruder);
@@ -1383,6 +1387,7 @@ void process_commands()
       feedmultiply = saved_feedmultiply;
       previous_millis_cmd = millis();
       endstops_hit_on_purpose();
+	  st_synchronize();
       break;
 
 #ifdef ENABLE_AUTO_BED_LEVELING
@@ -2222,6 +2227,22 @@ void process_commands()
         SERIAL_PROTOCOLLN("Error");
       SERIAL_PROTOCOLPGM(MSG_Z_MIN);
       if(!imc_send_get_param_one(Z_AXIS, IMC_PARAM_MIN_LIMIT_STATE, (uint32_t*)&codenum))
+        SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
+      else
+        SERIAL_PROTOCOLLN("Error");
+		
+      SERIAL_PROTOCOLPGM(MSG_X_MAX);
+      if(!imc_send_get_param_one(X_AXIS, IMC_PARAM_MAX_LIMIT_STATE, (uint32_t*)&codenum))
+        SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
+      else
+        SERIAL_PROTOCOLLN("Error");
+      SERIAL_PROTOCOLPGM(MSG_Y_MAX);
+      if(!imc_send_get_param_one(Y_AXIS, IMC_PARAM_MAX_LIMIT_STATE, (uint32_t*)&codenum))
+        SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
+      else
+        SERIAL_PROTOCOLLN("Error");
+      SERIAL_PROTOCOLPGM(MSG_Z_MAX);
+      if(!imc_send_get_param_one(Z_AXIS, IMC_PARAM_MAX_LIMIT_STATE, (uint32_t*)&codenum))
         SERIAL_PROTOCOLLN(codenum?MSG_ENDSTOP_HIT:MSG_ENDSTOP_OPEN);
       else
         SERIAL_PROTOCOLLN("Error");
@@ -3128,7 +3149,7 @@ void process_commands()
 	{
 		const char axs_tmp[] = "XYZABC";
 		uint32_t rsp;
-		for(int i = 0; i < 3; ++i)
+		for(int i = 0; i < 4; ++i)
 		{
       SERIAL_ECHO_START;
 			SERIAL_ECHO(axs_tmp[i]);

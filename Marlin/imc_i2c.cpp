@@ -276,6 +276,12 @@ uint8_t imc_init(void)
 			slave_exists[i] = false;
 	}
 
+        // Re-send home signal to reset errors related to endstops not firing.
+        for(i = 0; i < IMC_MAX_MOTORS; ++i)
+	{
+          ret = imc_send_init_one(i, &params, &resp, 5);
+	}  
+
 	return num_worked;
 		
 }
@@ -309,7 +315,7 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
   rsp_status_t rsp;
   uint16_t min_queue = 0xffff, max_queue = 0;
 
-#if IMC_DEBUG_MODE >= 7
+#if IMC_DEBUG_MODE >= 10
   SERIAL_ECHOLN("IMC In Check Status");
 #endif
 
@@ -456,8 +462,8 @@ imc_return_type imc_balance_queues(void)
 #if IMC_DEBUG_MODE > 0
   if(slave_out_of_sync)
   {
-    SERIAL_ECHO_START;
-    SERIAL_ECHOLNPGM("Slaves out of sync!");
+    //SERIAL_ECHO_START;
+    //SERIAL_ECHOLNPGM("Slaves out of sync!");
   }
 #endif
   moves_queued_guess = slave_blocks;
@@ -541,28 +547,28 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
         move_data[k].length = 0;
       }
       #if IMC_DEBUG_MODE > 4
-      SERIAL_ECHOPAIR("Accel: ", (long unsigned int)current_block->acceleration_st);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Final Rate: ", (long unsigned int)current_block->final_rate*60);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Initial Rate: ", (long unsigned int)current_block->initial_rate*60);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Nominal Rate: ", (long unsigned int)current_block->nominal_rate*60);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Start Decel: ", (long unsigned int)current_block->decelerate_after);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Stop Accel: ", (long unsigned int)current_block->accelerate_until);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Length: ", (long unsigned int)current_block->step_event_count);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("X Length: ", (float)current_block->steps_x);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Y Length: ", (float)current_block->steps_y);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("Z Length: ", (float)current_block->steps_z);
-      SERIAL_ECHOLN("");
-      SERIAL_ECHOPAIR("E Length: ", (float)current_block->steps_e);
-      SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Accel: ", (long unsigned int)current_block->acceleration_st);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Final Rate: ", (long unsigned int)current_block->final_rate*60);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Initial Rate: ", (long unsigned int)current_block->initial_rate*60);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Nominal Rate: ", (long unsigned int)current_block->nominal_rate*60);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Start Decel: ", (long unsigned int)current_block->decelerate_after);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Stop Accel: ", (long unsigned int)current_block->accelerate_until);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Length: ", (long unsigned int)current_block->step_event_count);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("X Length: ", (float)current_block->steps_x);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Y Length: ", (float)current_block->steps_y);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("Z Length: ", (float)current_block->steps_z);
+      // SERIAL_ECHOLN("");
+      // SERIAL_ECHOPAIR("E Length: ", (float)current_block->steps_e);
+      // SERIAL_ECHOLN("");
       #endif
       move_data[0].length = ((current_block->direction_bits & (1<<X_AXIS)) ? -1 : 1) * current_block->steps_x;
       move_data[1].length = ((current_block->direction_bits & (1<<Y_AXIS)) ? -1 : 1) * current_block->steps_y;
@@ -626,9 +632,10 @@ imc_return_type imc_drain_queues(void)
 		    // error condition
 		    return ret;
     }
-    else
-      // we already know the queue is empty
-      return IMC_RET_SUCCESS;
+    //else
+	//{
+    //  return IMC_RET_SUCCESS;
+	//}
   }
 
   // make sure the sync line is released --> slaves can move
@@ -652,7 +659,7 @@ imc_return_type imc_drain_queues(void)
   }
 
   // now there are no queued moves; wait for the sync line to go high.
-  delay(200);
+  delay(20);
 
   // wait for a while...
   for(uint16_t i = 0; i < 1000; i++)
@@ -797,7 +804,7 @@ imc_return_type imc_send_status_all(rsp_status_t resps[IMC_MAX_MOTORS], uint8_t 
 // Same as above, but sending to only one motor.
 imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_t retries )
 {
-#if IMC_DEBUG_MODE >= 7
+#if IMC_DEBUG_MODE >= 10
   SERIAL_ECHOLN("IMC In Send Status");
 #endif
 	return do_txrx( motor_id, IMC_MSG_STATUS, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
@@ -826,6 +833,7 @@ imc_return_type imc_send_home_one(uint8_t motor_id, uint8_t retries )
 #if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("IMC In Send Home");
 #endif
+  moves_queued_guess++;
   motor_off[motor_id] = false;
 	return do_txrx( motor_id, IMC_MSG_HOME, (const uint8_t *)NULL, 0, (uint8_t*)NULL, 
 			0, retries);
@@ -854,8 +862,8 @@ imc_return_type imc_send_queue_all(const msg_queue_move_t params[IMC_MAX_MOTORS]
 imc_return_type imc_send_queue_one(uint8_t motor_id, const msg_queue_move_t *params, uint8_t retries )
 {
 #if IMC_DEBUG_MODE >= 6
-  SERIAL_ECHOPGM("IMC In Queue motor ");
-  SERIAL_ECHOLN((int)motor_id);
+  //SERIAL_ECHOPGM("IMC In Queue motor ");
+  //SERIAL_ECHOLN((int)motor_id);
 #endif
   if(!moves_queued_guess) moves_queued_guess = 1;
 	return do_txrx( motor_id, IMC_MSG_QUEUEMOVE, (const uint8_t *)params, sizeof(msg_queue_move_t), (uint8_t*)NULL, 
