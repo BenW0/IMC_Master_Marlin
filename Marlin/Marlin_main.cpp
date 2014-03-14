@@ -549,7 +549,11 @@ void loop()
   }
   //check heater every n milliseconds
   manage_heater();
+  //||\\!!
+  digitalWrite(27, HIGH);   // D5
   manage_inactivity();
+  //||\\!!
+  digitalWrite(27, LOW);   // D5
   checkHitEndstops();
   lcd_update();
 }
@@ -1008,9 +1012,10 @@ static void homeaxis(int axis) {
 
 #ifdef IMC_ENABLED
     // homing occurs on the slave, using the slave's homing routine.
-    st_synchronize();   // clear queue before starting
-    imc_send_home_one(axis);
-    st_synchronize();   // wait for homing to complete
+    //st_synchronize();   // clear queue before starting
+    //imc_send_home_one(axis);
+    //st_synchronize();   // wait for homing to complete
+    imc_home_axis(axis);
 #else // IMC_ENABLED
     current_position[axis] = 0;
     plan_set_position(current_position[X_AXIS], current_position[Y_AXIS], current_position[Z_AXIS], current_position[E_AXIS]);
@@ -1387,7 +1392,7 @@ void process_commands()
       feedmultiply = saved_feedmultiply;
       previous_millis_cmd = millis();
       endstops_hit_on_purpose();
-	  st_synchronize();
+	    st_synchronize();
       break;
 
 #ifdef ENABLE_AUTO_BED_LEVELING
@@ -3680,12 +3685,16 @@ void manage_inactivity()
   #endif
   check_axes_activity();
   #ifdef IMC_ENABLED
+  //||\\!!
+  digitalWrite(53, HIGH);
   imc_balance_queues();
   if(imc_last_queue_state() > 0)
   {
     // moves are queued on the slaves...reset the "previous_millis_cmd" variable to keep things from going asleep.
     previous_millis_cmd = millis();
   }
+  //||\\!!
+  digitalWrite(53, LOW);
   #endif
 }
 

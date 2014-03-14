@@ -5,6 +5,7 @@
   Matthew Sorensen & Ben Weiss, University of Washington
 
   TODO: ***** Reset dangerous extrude and lengthy extrude before you use in a real printer ******
+  TODO: Fix homing routine to re-load motor positions afterwards.
   TODO: Replace all tabs by two spaces to conform with the rest of Marlin
   TODO: Figure out how to control endstops - presence vs. enabling.
   TODO: Figure out Autotemp and refactor planner.cpp/check_axis_activity
@@ -71,6 +72,16 @@ uint8_t imc_init(void)
 	// deactivate internal pullups. There are already hardware pullups in place.
 	digitalWrite(SDA, 0);
 	digitalWrite(SCL, 0);
+	
+	//||\\ Setup debug output ports
+	pinMode(23, OUTPUT);
+	pinMode(25, OUTPUT);
+	pinMode(27, OUTPUT);
+	pinMode(29, OUTPUT);
+	pinMode(31, OUTPUT);
+  pinMode(53, OUTPUT);
+  SERIAL_ECHOLN((int)safemax((imc_return_type)1,(imc_return_type)3));
+  SERIAL_ECHOLN((int)safemax((imc_return_type)4,(imc_return_type)2));
 
 	// configure the sync line to keep motion from happening until we're ready.
 	imc_sync_set();
@@ -100,7 +111,7 @@ uint8_t imc_init(void)
 		}
 		else
 		{
-			#if IMC_DEBUG_MODE > 0
+      #if IMC_DEBUG_MODE > 0
 				SERIAL_ECHO("IMC Axis ");
 				SERIAL_ECHO((int)i);
 				SERIAL_ECHO(" returned ");
@@ -314,10 +325,18 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
   imc_return_type ret = IMC_RET_SUCCESS;
   rsp_status_t rsp;
   uint16_t min_queue = 0xffff, max_queue = 0;
+  
+  //||\\!!
+  digitalWrite(23, HIGH);   // D3
+  
+  if(NULL != queued_moves)
+    *queued_moves = 0;
+  
 
-#if IMC_DEBUG_MODE >= 10
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 10
   SERIAL_ECHOLN("IMC In Check Status");
-#endif
+}//#endif
 
   for(uint8_t i = 0; i < IMC_MAX_MOTORS; ++i)
   {
@@ -329,10 +348,10 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
       if(!ret)
       {
         min_queue = min(min_queue, rsp.queued_moves);
-        max_queue = safemax(max_queue, rsp.queued_moves);
+        max_queue = max(max_queue, rsp.queued_moves);
       }
     }
-    if(NULL != axis_errors)
+    else if(NULL != axis_errors)
       axis_errors[i] = IMC_ERR_NONE;
   }
   if(NULL != queued_moves)
@@ -340,6 +359,8 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
   if(NULL != queue_disagreement && 0xffff != min_queue)
     *queue_disagreement = (max_queue != min_queue);
   moves_queued_guess = max_queue;
+  //||\\!!
+  digitalWrite(23, LOW);
   return ret;
 }
 
@@ -395,9 +416,10 @@ imc_return_type imc_turn_motor_off(uint8_t motor_id)
 // imc_sync_set - sets the synchronization line low
 void imc_sync_set()
 {
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("Sync Set");
-#endif
+}//#endif
 	pinMode(IMC_SYNC_PIN, OUTPUT);
 	digitalWrite(IMC_SYNC_PIN, LOW);
 }
@@ -405,9 +427,10 @@ void imc_sync_set()
 // imc_sync_release - tristates the sync pin and returns the value read.
 bool imc_sync_release()
 {
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("Sync Release");
-#endif
+}//#endif
 	pinMode(IMC_SYNC_PIN, INPUT);
 	return (bool)digitalRead(IMC_SYNC_PIN);
 }
@@ -435,11 +458,19 @@ imc_return_type imc_balance_queues(void)
   uint16_t total_blocks;
   bool slave_out_of_sync = false;
   imc_return_type ret = IMC_RET_SUCCESS;
+  
+  if(digitalRead(51)) {
+  //#if IMC_DEBUG_MODE >= 8
+  SERIAL_ECHOLN("IMC Balance Queues");
+  }//#endif
 
   // Quit if master has no queued moves.
   planner_blocks = movesplanned();
   if(0 == planner_blocks)
     return IMC_RET_SUCCESS;
+	
+  //||\\!!
+  digitalWrite(25, HIGH);   // D4
 
   // first, get the number of blocks in the slave queue
   ret = imc_check_status(NULL, &slave_blocks, &slave_out_of_sync);
@@ -455,19 +486,22 @@ imc_return_type imc_balance_queues(void)
     for(uint8_t i = 0; i < IMC_MAX_MOTORS; ++i)
     {
       SERIAL_ERROR(axis_codes[i]);
-      SERIAL_ERRORLN(errs[i]);
+      SERIAL_ERROR((int)errs[i]);
     }
+    SERIAL_ERRORLN("");
+    //||\\!!
+    digitalWrite(25, LOW);
     return ret;
   }
-#if IMC_DEBUG_MODE > 0
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE > 0
   if(slave_out_of_sync)
   {
-    //SERIAL_ECHO_START;
-    //SERIAL_ECHOLNPGM("Slaves out of sync!");
+    SERIAL_ECHO_START;
+    SERIAL_ECHOLNPGM("Slaves out of sync!");
   }
-#endif
+}//#endif
   moves_queued_guess = slave_blocks;
-  if(slave_blocks)
 
 
 
@@ -498,6 +532,9 @@ imc_return_type imc_balance_queues(void)
   // if there are blocks to be moved now but were't before, start the movement
   if(moves_queued_guess > 0 && 0 == slave_blocks)
     imc_sync_release();
+    
+	//||\\!!
+	digitalWrite(25, LOW);
 }
 
 // imc_push_blocks (local)
@@ -509,6 +546,15 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
   uint16_t blocks_pushed = 0;
   if(0 == blocks_to_push)   // nothing to do
     return 0;
+    
+  // strange that I have to check this, but I do
+  if(blocks_to_push > imc_queue_depth)
+  {
+    blocks_to_push = imc_queue_depth;
+  }
+    
+	//||\\!!
+	//digitalWrite(27, HIGH);   // D5
 
   msg_queue_move_t move_data[IMC_MAX_MOTORS];
 
@@ -520,6 +566,7 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
   SERIAL_ECHOPGM(" Pushing: ");
   SERIAL_ECHOLN((int)blocks_to_push);
 #endif
+
 
   // all motors will turn on.
   for(uint8_t i = 0; i < IMC_MAX_MOTORS; i++)
@@ -546,7 +593,7 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
         move_data[k].total_length = current_block->step_event_count;
         move_data[k].length = 0;
       }
-      #if IMC_DEBUG_MODE > 4
+      //#if IMC_DEBUG_MODE > 4
       // SERIAL_ECHOPAIR("Accel: ", (long unsigned int)current_block->acceleration_st);
       // SERIAL_ECHOLN("");
       // SERIAL_ECHOPAIR("Final Rate: ", (long unsigned int)current_block->final_rate*60);
@@ -569,7 +616,7 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
       // SERIAL_ECHOLN("");
       // SERIAL_ECHOPAIR("E Length: ", (float)current_block->steps_e);
       // SERIAL_ECHOLN("");
-      #endif
+      //#endif
       move_data[0].length = ((current_block->direction_bits & (1<<X_AXIS)) ? -1 : 1) * current_block->steps_x;
       move_data[1].length = ((current_block->direction_bits & (1<<Y_AXIS)) ? -1 : 1) * current_block->steps_y;
       move_data[2].length = ((current_block->direction_bits & (1<<Z_AXIS)) ? -1 : 1) * current_block->steps_z;
@@ -594,6 +641,8 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
 
     }
   }
+	//||\\!!
+	//digitalWrite(27, LOW);
   return blocks_pushed;
 }
 
@@ -608,11 +657,14 @@ imc_return_type imc_drain_queues(void)
 {
   imc_return_type ret = IMC_RET_SUCCESS;
   uint16_t queued_moves = 1;
+  //||\\!!
+  digitalWrite(53, HIGH);   // D8
 
-#if IMC_DEBUG_MODE >=6 
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >=6 
   SERIAL_ECHOPGM("In Drain Queues. moves_queued_guess: ");
   SERIAL_ECHOLN((int)moves_queued_guess);
-#endif
+}//#endif
 
   // check - are queues already empty?
   if(movesplanned() == 0)
@@ -629,8 +681,13 @@ imc_return_type imc_drain_queues(void)
         }
 	    }
 	    else
+      {
 		    // error condition
+        SERIAL_ECHOLN("Error when draining queues!");
+        //||\\!!
+        digitalWrite(53, LOW);
 		    return ret;
+      }
     }
     //else
 	//{
@@ -650,6 +707,8 @@ imc_return_type imc_drain_queues(void)
       // stop further movement
       imc_sync_set();
       SERIAL_ECHOLN("Error when draining queues!");
+      //||\\!!
+      digitalWrite(53, LOW);
       return ret;
     }
     moves_queued_guess = queued_moves;
@@ -678,12 +737,16 @@ imc_return_type imc_drain_queues(void)
     SERIAL_ERRORLN("Marlin timed out waiting for all moves to finish!");
   }
 
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("Drain done");
-#endif
+}//#endif
 
   imc_sync_set();   // keep future moves from executing until we're ready
   moves_queued_guess = 0;
+  
+  //||\\!!
+  digitalWrite(53, LOW);
 }
 
 // imc_quick_stop
@@ -691,9 +754,10 @@ imc_return_type imc_drain_queues(void)
 void imc_quick_stop(void)
 {
   
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("IMC Quick Stop");
-#endif
+}//#endif
 
   while(blocks_queued())
     plan_discard_current_block();
@@ -713,7 +777,48 @@ uint16_t imc_last_queue_state(void)
 
 
 // Slave location commands
+// imc_home_axis
+// homes the axis <motor_id> and then blocks until homing is complete. This is superior to using imc_send_home_* and then st_synchronize
+// because slaves don't respond well to status queries when in the homing cycle.
+imc_return_type imc_home_axis(uint8_t motor_id)
+{
+  // release the sync line
+  imc_sync_release();
+  moves_queued_guess = 0;
+  
+  // send the command
+  imc_send_home_one(motor_id);
+  
+  // wait for the slave to set the sync line
+  delay(50);
+  
+  // wait for a while...
+  for(uint16_t i = 0; i < 1000; i++)
+  {
+	  manage_heater();
+	  manage_inactivity();
+	  lcd_update();
 
+    if(imc_sync_check())
+      break;
+    
+    if(digitalRead(51) && i % 2) {
+//#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOLN("IMC Waiting for home");
+}//#endif
+
+    delay(50);
+  }
+  
+  if(imc_sync_check() == 0)
+  {
+    // timed out waiting for the axis to home
+    SERIAL_ERROR_START;
+    SERIAL_ERROR("Timed out waiting for axis ");
+    SERIAL_ERROR((int)motor_id);
+    SERIAL_ERRORLN(" to home!");
+  }
+}
 
 
 
@@ -778,9 +883,10 @@ imc_return_type imc_send_init_one(uint8_t motor_id, uint16_t *slave_hw_ver, uint
 
 imc_return_type imc_send_init_one(uint8_t motor_id, const msg_initialize_t *params, rsp_initialize_t *resp, uint8_t retries )
 {
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("IMC In Send Init");
-#endif
+}//#endif
   motor_off[motor_id] = false;
 	return do_txrx( motor_id, IMC_MSG_INITIALIZE, (const uint8_t *)params, sizeof(msg_initialize_t), (uint8_t*)resp, 
 			sizeof(rsp_initialize_t), retries);
@@ -804,11 +910,22 @@ imc_return_type imc_send_status_all(rsp_status_t resps[IMC_MAX_MOTORS], uint8_t 
 // Same as above, but sending to only one motor.
 imc_return_type imc_send_status_one(uint8_t motor_id, rsp_status_t *resp, uint8_t retries )
 {
-#if IMC_DEBUG_MODE >= 10
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 10
   SERIAL_ECHOLN("IMC In Send Status");
-#endif
-	return do_txrx( motor_id, IMC_MSG_STATUS, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
+}//#endif
+	imc_return_type ret = do_txrx( motor_id, IMC_MSG_STATUS, (const uint8_t *)NULL, 0, (uint8_t*)resp, 
 			sizeof(rsp_status_t), retries);
+  
+  if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 10
+    SERIAL_ECHO("Status: Motor ");
+    SERIAL_ECHO((int)motor_id);
+    SERIAL_ECHO(" moves: ");
+    SERIAL_ECHO((int)resp->queued_moves);
+    SERIAL_ECHO(" state: ");
+    SERIAL_ECHOLN((int)resp->status);
+}//#endif
 }
 
 
@@ -830,9 +947,10 @@ imc_return_type imc_send_home_all(uint8_t retries )
 // Same as above, but only one motor.
 imc_return_type imc_send_home_one(uint8_t motor_id, uint8_t retries )
 {
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("IMC In Send Home");
-#endif
+}//#endif
   moves_queued_guess++;
   motor_off[motor_id] = false;
 	return do_txrx( motor_id, IMC_MSG_HOME, (const uint8_t *)NULL, 0, (uint8_t*)NULL, 
@@ -861,13 +979,20 @@ imc_return_type imc_send_queue_all(const msg_queue_move_t params[IMC_MAX_MOTORS]
 // be affected. It is made public only for debug and special code M453.
 imc_return_type imc_send_queue_one(uint8_t motor_id, const msg_queue_move_t *params, uint8_t retries )
 {
-#if IMC_DEBUG_MODE >= 6
-  //SERIAL_ECHOPGM("IMC In Queue motor ");
-  //SERIAL_ECHOLN((int)motor_id);
-#endif
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
+  SERIAL_ECHOPGM("IMC In Queue motor ");
+  SERIAL_ECHOLN((int)motor_id);
+}//#endif
+
+	//||\\!!
+	digitalWrite(29, HIGH);   // D6
   if(!moves_queued_guess) moves_queued_guess = 1;
-	return do_txrx( motor_id, IMC_MSG_QUEUEMOVE, (const uint8_t *)params, sizeof(msg_queue_move_t), (uint8_t*)NULL, 
+  imc_return_type ret =  do_txrx( motor_id, IMC_MSG_QUEUEMOVE, (const uint8_t *)params, sizeof(msg_queue_move_t), (uint8_t*)NULL, 
 			0, retries);
+	//||\\!!
+	digitalWrite(29, LOW);
+	return ret;
 }
 
 // Send Get Parameter message
@@ -890,7 +1015,8 @@ imc_return_type imc_send_get_param_all(imc_axis_parameter param_id, uint32_t val
 imc_return_type imc_send_get_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t *value, uint8_t retries )
 {
 #if IMC_DEBUG_MODE >= 6
-  SERIAL_ECHOLN("IMC In Get Param");
+  SERIAL_ECHO("IMC In Get Param ");
+  SERIAL_ECHOLN((int)param_id);
 #endif
 	return do_txrx( motor_id, IMC_MSG_GETPARAM, (const uint8_t *)&param_id, sizeof(uint8_t), (uint8_t*)value, 
 			sizeof(uint32_t), retries);
@@ -915,8 +1041,14 @@ imc_return_type imc_send_set_param_all(imc_axis_parameter param_id, uint32_t val
 // Same as above, but for one motor
 imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter param_id, uint32_t value, uint8_t retries )
 {
+
 #if IMC_DEBUG_MODE >= 6
-  SERIAL_ECHOLN("IMC In Set Param");
+  SERIAL_ECHO("IMC In Set Param. p=");
+  SERIAL_ECHO((int)param_id);
+  SERIAL_ECHO(" m=");
+  SERIAL_ECHO((int)motor_id);
+  SERIAL_ECHO(" v=");
+  SERIAL_ECHOLN((int)value);
 #endif
 	msg_set_param_t msg;
 	msg.param_id = param_id;
@@ -945,9 +1077,10 @@ imc_return_type imc_send_quickstop_all(uint8_t retries)
 // Same as above, but for one motor. This is private (all quickstops should apply to all motors)
 imc_return_type imc_send_quickstop_one(uint8_t motor_id, uint8_t retries)
 {
-#if IMC_DEBUG_MODE >= 6
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 6
   SERIAL_ECHOLN("IMC In Quickstop");
-#endif
+}//#endif
 	return do_txrx( motor_id, IMC_MSG_QUICKSTOP, (const uint8_t *)NULL, 0, (uint8_t*)NULL, 
 			0, retries);
 }
@@ -981,6 +1114,9 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 	// sanity check - motor id valid?
 	if( motor >= IMC_MAX_MOTORS || !slave_exists[motor] )
 		return IMC_RET_PARAM_ERROR;
+    
+	//||\\!!
+	digitalWrite(31, HIGH);
 
 	// create the packet checksum
 	checkval = checksum((uint8_t*)&msg_type, 1);
@@ -990,11 +1126,13 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 	for( uint8_t i = 0; i < retries && ret != IMC_RET_SUCCESS; ++i )
 	{
     
-#if IMC_DEBUG_MODE >= 4
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 4
     if(i > 0)
       SERIAL_ECHOLN("IMC Tx Retry");
-#endif
-#if IMC_DEBUG_MODE >= 10
+}//#endif
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 10
 
     SERIAL_ECHOLN("");
     SERIAL_ECHO("Tx:");
@@ -1007,7 +1145,7 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
     }
     MYSERIAL.print(checkval, 16);
     SERIAL_ECHOLN("");
-#endif
+}//#endif
 
 		Wire.beginTransmission(slave_addr);
 		Wire.write(msg_type);			// send the header
@@ -1037,16 +1175,20 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 		case 0:				// success
 			break;
 		case 1: case 4:		// issues with the parameters. Won't be able to send this packet
-#if IMC_DEBUG_MODE >= 4
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 4
       SERIAL_ECHOLN("Wire.endTransmission() failed on 1 or 4");
-#endif
+}//#endif
+      //||\\!!
+      digitalWrite(31, LOW);
 			return IMC_RET_PARAM_ERROR;
 			break;
 		default:			// 2 and 3 are communication issues. Try again.
-#if IMC_DEBUG_MODE >= 8
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 8
       SERIAL_ECHO("Tx Wire error. Motor ");
       SERIAL_ECHOLN((char)motor);
-#endif
+}//#endif
 			ret = IMC_RET_COMM_ERROR;
 			continue;		// retry (go to top. do not pass go. do not collect $200).
 		}
@@ -1058,10 +1200,11 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 		for( uint8_t j = 0; j < retries; ++j )
 		{
       
-#if IMC_DEBUG_MODE >= 4
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 4
     if(j > 0)
       SERIAL_ECHOLN("IMC Rx Retry");
-#endif
+}//#endif
 
 			// read back the response - we will need resp_len + 2 because of the added response byte and checksum.
 			Wire.requestFrom(slave_addr, (uint8_t)(resp_len + 2));
@@ -1071,9 +1214,10 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			if( Wire.available() < resp_len + 2 )
 			{
 				ret = IMC_RET_COMM_ERROR;
-        #if IMC_DEBUG_MODE >= 8
+        if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 8
           SERIAL_ECHOLN("Not Enough Bytes");
-        #endif
+        }//#endif
 				continue;
 			}
 
@@ -1082,7 +1226,8 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			Wire.readBytes((char*)resp, resp_len);
 			respcheck = Wire.read();
 
-#if IMC_DEBUG_MODE >= 10
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 10
       SERIAL_ECHOLN("");
       SERIAL_ECHO("Rcv:");
       MYSERIAL.print(respcode, 16);
@@ -1094,16 +1239,17 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
       }
       MYSERIAL.print(respcheck, 16);
       SERIAL_ECHOLN("");
-#endif
+}//#endif
 
       // check for explicit comm error (buffer mismatch)
       if(IMC_RSP_COMM_ERROR == respcode)
       {
         // something is horribly wrong!
         ret = IMC_RET_COMM_ERROR;
-        #if IMC_DEBUG_MODE > 8
+        if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE > 8
           SERIAL_ECHOLN("Slave returned nonsense");
-        #endif
+        }//#endif
         continue;
       }
 		  
@@ -1122,32 +1268,40 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 			if( respcheck != checkval )
 			{
 				ret = IMC_RET_COMM_ERROR;
-        #if IMC_DEBUG_MODE >= 8
+        if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 8
           SERIAL_ECHOLN("Receiving Checksum failed");
-        #endif
+        }//#endif
 				continue;
 			}
       
 
 			ret = (imc_return_type)(respcode-1);    // adjust for communication errors
 
-#if IMC_DEBUG_MODE >= 4
+if(digitalRead(51)) {
+//#if IMC_DEBUG_MODE >= 4
       if(ret != IMC_RET_SUCCESS)
         SERIAL_ECHOPAIR("Resp: ", (long unsigned int)respcode);
-#endif
+}//#endif
 
 			break;	// successful read. Finish loop.
 		}
 
 		// did we succeed at the read?
 		if( IMC_RET_COMM_ERROR == ret )
+    {
+      //||\\!!
+      digitalWrite(31, LOW);
 			return ret;					// errored out of read; quit.
+    }
 
 		// check for response byte value.
 		switch(respcode)
 		{
 		case IMC_RSP_OK: case IMC_RSP_QUEUEFULL:
 			// not a transmission error condition; transmission is complete.
+      //||\\!!
+      digitalWrite(31, LOW);
 			return ret;
 			break;
 		default :		// transmission error occurred. Retransmit original packet.
@@ -1158,6 +1312,9 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 		// transmission completed successfully if execution reaches here.
 		break;
 	}
+  
+  //||\\!!
+  digitalWrite(31, LOW);
 
 	return ret;
 }

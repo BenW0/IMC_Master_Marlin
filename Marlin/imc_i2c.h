@@ -42,6 +42,9 @@ imc_return_type imc_drain_queues(void);
 void imc_quick_stop(void);
 uint16_t imc_last_queue_state(void);
 
+// slave location commands
+imc_return_type imc_home_axis(uint8_t motor_id);
+
 // Sends the Initialize message to all slaves.
 imc_return_type imc_send_init_all(uint16_t slave_hw_vers[IMC_MAX_MOTORS], uint16_t slave_fw_vers[IMC_MAX_MOTORS], 
 	uint16_t slave_queue_depths[IMC_MAX_MOTORS], uint8_t retries = 3);
