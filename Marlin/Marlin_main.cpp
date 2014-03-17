@@ -3165,7 +3165,7 @@ void process_commands()
 		}
 	}
 	break;
-  #if IMC_DEBUG_MODE >= 0
+  #if IMC_DEBUG_MODE > 0
   case 457: // M457 - Set/unset IMC sync line. S - sets the line, U - unset the line, C - check the line
 	{
 		if(code_seen('S'))
@@ -3187,6 +3187,11 @@ void process_commands()
 		st_synchronize();
 	}
 	break;
+  case 459: // M459 - read back queue decisions for last 128 moves.
+  {
+    imc_read_queue_history();
+  }
+  break;
   #endif    // IMC_DEBUG_MODE
 	#endif // IMC_ENABLED
 

@@ -82,6 +82,11 @@ imc_return_type imc_send_set_param_one(uint8_t motor_id, imc_axis_parameter para
 // Send Quickstop message
 imc_return_type imc_send_quickstop_all(uint8_t retries = 3);
 
+// Debugging commands
+#if IMC_DEBUG_MODE > 0
+void imc_read_queue_history(void);
+#endif
+
 // global variables
 extern const imc_param_type imc_param_types[];
 

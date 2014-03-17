@@ -47,6 +47,13 @@ uint16_t queue_depth[IMC_MAX_MOTORS];	// What is each slave's queue depth?
 uint16_t imc_queue_depth;				// minimum slave queue depth
 uint16_t moves_queued_guess = 0;            // Set by imc_check_status, incremented when imc_send_queue_move_* is called, and cleared when imc_drain_queue or imc_flush_queue is called.
 bool motor_off[IMC_MAX_MOTORS];       // used to keep track of whether motors are disabled or not.
+#if IMC_DEBUG_MODE > 0
+// keep track of the last 100 times we've pushed a move to slaves, so we can get an idea of queue depths without using serial traffic in real time.
+// read this back using imc_read_queue_history().
+typedef struct { uint8_t planner; uint8_t slave; uint8_t pushing;} dqh_t;
+dqh_t debug_queue_history[128];
+uint8_t debug_queue_index = 0;
+#endif
 
 // Local Function Predeclares ========================================================
 uint16_t imc_push_blocks(uint16_t blocks_to_push);
@@ -83,6 +90,10 @@ uint8_t imc_init(void)
   SERIAL_ECHOLN((int)safemax((imc_return_type)1,(imc_return_type)3));
   SERIAL_ECHOLN((int)safemax((imc_return_type)4,(imc_return_type)2));
 
+#if IMC_DEBUG_MODE > 0
+  // clear the queue history buffer
+  memset(debug_queue_history, 0, sizeof(dqh_t) * 128);
+#endif
 	// configure the sync line to keep motion from happening until we're ready.
 	imc_sync_set();
   moves_queued_guess = 0;
@@ -1086,6 +1097,32 @@ if(digitalRead(51)) {
 }
 
 
+// Read back debugging queue state history
+// Prints the last 127 queue decisions made by balance_queues() to the serial console
+#if IMC_DEBUG_MODE > 0
+void imc_read_queue_history(void)
+{
+  for(int8_t i = (debug_queue_index - 1) & 127; i >= 0; --i)
+  {
+    SERIAL_ECHO("Planner: ");
+    SERIAL_ECHO((int)debug_queue_history[i].planner);
+    SERIAL_ECHO("Slaves: ");
+    SERIAL_ECHO((int)debug_queue_history[i].slaves);
+    SERIAL_ECHO("Pushing: ");
+    SERIAL_ECHO((int)debug_queue_history[i].pushing);
+  }
+  for(int8_t i = 127; i >= debug_queue_index; --i)
+  {
+    SERIAL_ECHO("Planner: ");
+    SERIAL_ECHO((int)debug_queue_history[i].planner);
+    SERIAL_ECHO("Slaves: ");
+    SERIAL_ECHO((int)debug_queue_history[i].slaves);
+    SERIAL_ECHO("Pushing: ");
+    SERIAL_ECHO((int)debug_queue_history[i].pushing);
+  }
+}
+#endif
+
 
 // Do the transmit/receive of a packet (local function). The first byte of the response from the slave indicates the
 // slave's acknowledgement of the packet and is returned in imc_return_type. If an IMC_RSP_UNKNOWN or IMC_RSP_ERROR response
@@ -1126,11 +1163,11 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 	for( uint8_t i = 0; i < retries && ret != IMC_RET_SUCCESS; ++i )
 	{
     
-if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 4
+#if IMC_DEBUG_MODE >= 4
+
     if(i > 0)
       SERIAL_ECHOLN("IMC Tx Retry");
-}//#endif
+#endif
 if(digitalRead(51)) {
 //#if IMC_DEBUG_MODE >= 10
 
@@ -1175,20 +1212,20 @@ if(digitalRead(51)) {
 		case 0:				// success
 			break;
 		case 1: case 4:		// issues with the parameters. Won't be able to send this packet
-if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 4
+
+#if IMC_DEBUG_MODE >= 4
       SERIAL_ECHOLN("Wire.endTransmission() failed on 1 or 4");
-}//#endif
+#endif
       //||\\!!
       digitalWrite(31, LOW);
 			return IMC_RET_PARAM_ERROR;
 			break;
 		default:			// 2 and 3 are communication issues. Try again.
-if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 8
+
+#if IMC_DEBUG_MODE >= 8
       SERIAL_ECHO("Tx Wire error. Motor ");
       SERIAL_ECHOLN((char)motor);
-}//#endif
+#endif
 			ret = IMC_RET_COMM_ERROR;
 			continue;		// retry (go to top. do not pass go. do not collect $200).
 		}
@@ -1200,11 +1237,10 @@ if(digitalRead(51)) {
 		for( uint8_t j = 0; j < retries; ++j )
 		{
       
-if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 4
+#if IMC_DEBUG_MODE >= 4
     if(j > 0)
       SERIAL_ECHOLN("IMC Rx Retry");
-}//#endif
+#endif
 
 			// read back the response - we will need resp_len + 2 because of the added response byte and checksum.
 			Wire.requestFrom(slave_addr, (uint8_t)(resp_len + 2));
@@ -1214,10 +1250,10 @@ if(digitalRead(51)) {
 			if( Wire.available() < resp_len + 2 )
 			{
 				ret = IMC_RET_COMM_ERROR;
-        if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 8
+
+#if IMC_DEBUG_MODE >= 8
           SERIAL_ECHOLN("Not Enough Bytes");
-        }//#endif
+        #endif
 				continue;
 			}
 
@@ -1246,10 +1282,10 @@ if(digitalRead(51)) {
       {
         // something is horribly wrong!
         ret = IMC_RET_COMM_ERROR;
-        if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE > 8
+
+#if IMC_DEBUG_MODE > 8
           SERIAL_ECHOLN("Slave returned nonsense");
-        }//#endif
+        #endif
         continue;
       }
 		  
@@ -1268,10 +1304,10 @@ if(digitalRead(51)) {
 			if( respcheck != checkval )
 			{
 				ret = IMC_RET_COMM_ERROR;
-        if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 8
+
+#if IMC_DEBUG_MODE >= 8
           SERIAL_ECHOLN("Receiving Checksum failed");
-        }//#endif
+        #endif
 				continue;
 			}
       
