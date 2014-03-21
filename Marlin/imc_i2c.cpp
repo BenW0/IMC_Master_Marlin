@@ -14,10 +14,10 @@
   TODO: fix M119 handler
   TODO: protocol update for homing
   TODO: fix slaves out of sync so it re-polls
+  TODO: Handle slave errors better. Right now when a slave errors, it stops pushing blocks, and when the planner queue
+        is full, the planner idles (planner.c:540) and Marlin stops accepting new commands over serial. 
 
   Questions to answer:
-  * Will slaves wait for a sync before homing, or home immediately after message send (my preference)?
-  * Sync release on build start? On queue move?
 */
 
 #include <Wire.h>
@@ -671,11 +671,10 @@ imc_return_type imc_drain_queues(void)
   //||\\!!
   digitalWrite(53, HIGH);   // D8
 
-if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >=6 
+#if IMC_DEBUG_MODE >=4 
   SERIAL_ECHOPGM("In Drain Queues. moves_queued_guess: ");
   SERIAL_ECHOLN((int)moves_queued_guess);
-}//#endif
+#endif
 
   // check - are queues already empty?
   if(movesplanned() == 0)
@@ -748,10 +747,9 @@ if(digitalRead(51)) {
     SERIAL_ERRORLN("Marlin timed out waiting for all moves to finish!");
   }
 
-if(digitalRead(51)) {
-//#if IMC_DEBUG_MODE >= 6
+#if IMC_DEBUG_MODE >= 4
   SERIAL_ECHOLN("Drain done");
-}//#endif
+#endif
 
   imc_sync_set();   // keep future moves from executing until we're ready
   moves_queued_guess = 0;
