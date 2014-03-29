@@ -652,16 +652,6 @@
     #endif 
   #endif //ULTRA_LCD
 
-  // Intelligent Motor Controller over i2c interface (presently on RAMPS 1.3/1.4 only)
-  #if defined(IMC_ENABLED) && (MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35)
-    // i2c pins are globally defined with SCL and SDA; IMC just uses those names
-    // Pin to use for sync:
-    // YES, this overrides the default ZMIN endstop pin, but all endstops are now going to the devices
-    // themselves.
-	  #define IMC_SYNC_PIN   18
-    #undef Z_MIN_PIN
-    #define Z_MIN_PIN -1
-  #endif
 
 #else // RAMPS_V_1_1 or RAMPS_V_1_2 as default (MOTHERBOARD == 3)
 
@@ -709,8 +699,7 @@
 #define TEMP_2_PIN          -1   
 #define TEMP_BED_PIN        1    // MUST USE ANALOG INPUT NUMBERING NOT DIGITAL OUTPUT NUMBERING!!!!!!!!!
 
-#endif // MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35 || MOTHERBOARD == 77
-
+#endif // MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35 || MOTHERBOARD == 77  
 // SPI for Max6675 Thermocouple 
 
 #ifndef SDSUPPORT
@@ -724,6 +713,19 @@
 #endif
 
 #endif //MOTHERBOARD == 3 || MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35 || MOTHERBOARD == 77
+
+
+// Intelligent Motor Controller over i2c interface (presently on RAMPS 1.3/1.4 only)
+#if defined(IMC_ENABLED) && (MOTHERBOARD == 3 || MOTHERBOARD == 33 || MOTHERBOARD == 34 || MOTHERBOARD == 35)
+// i2c pins are globally defined with SCL and SDA; IMC just uses those names
+// Pin to use for sync:
+// YES, this overrides the default ZMIN endstop pin, but all endstops are now going to the devices
+// themselves.
+  #define IMC_SYNC_PIN   18
+#undef Z_MIN_PIN
+#define Z_MIN_PIN -1
+#endif
+
 
 /****************************************************************************************
 * Duemilanove w/ ATMega328P pin assignment

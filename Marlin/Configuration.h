@@ -70,7 +70,7 @@
 // 21 = Elefu Ra Board (v3)
 
 #ifndef MOTHERBOARD
-#define MOTHERBOARD 33
+#define MOTHERBOARD 3
 #endif
 
 // Define this to set a custom name for your generic Mendel,
@@ -429,7 +429,7 @@ const bool Z_MAX_ENDSTOP_INVERTING = true; // set to true to invert the logic of
   #define IMC_MAX_MOTORS		NUM_AXIS	
   #define IMC_HOST_REVISION	0x0001		// increment each time the protocol or master-slave interface code changes substantially.
 
-  #define IMC_DEBUG_MODE  8		// print extra debug messages to the console. 0 = off; higher level = more verbose. 10 = packet content, 6 = in function calls
+  #define IMC_DEBUG_MODE  3		// print extra debug messages to the console. 0 = off; higher level = more verbose. 10 = packet content, 6 = in function calls
   
   // i2c address of the first (X) motor axis. Each additional axis increases this number by 1. Change this number if other i2c addresses
   // in your setup conflict. Attempts will be made to contact all addresses in the range IMC_I2C_BASE_ADDRESS to IMC_I2C_BASE_ADDRESS + IMC_MAX_MOTORS
