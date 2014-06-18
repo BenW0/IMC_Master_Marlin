@@ -2214,9 +2214,9 @@ void process_commands()
 
       SERIAL_PROTOCOLPGM(MSG_COUNT_X);
       SERIAL_PROTOCOL(float(st_get_position(X_AXIS))/axis_steps_per_unit[X_AXIS]);
-      SERIAL_PROTOCOLPGM(MSG_COUNT_Y);
+      SERIAL_PROTOCOLPGM("Y:");
       SERIAL_PROTOCOL(float(st_get_position(Y_AXIS))/axis_steps_per_unit[Y_AXIS]);
-      SERIAL_PROTOCOLPGM(MSG_COUNT_Z);
+      SERIAL_PROTOCOLPGM("Z:");
       SERIAL_PROTOCOL(float(st_get_position(Z_AXIS))/axis_steps_per_unit[Z_AXIS]);
 
       SERIAL_PROTOCOLLN("");
