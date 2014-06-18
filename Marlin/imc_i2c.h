@@ -17,9 +17,10 @@
 #ifdef IMC_ENABLED
 
 // check to make sure we have a valid motherboard
-#ifndef IMC_SYNC_PIN
-#error "Please select a motherboard for which IMC_SYNC_PIN is defined"
-#endif	// IMC_SYNC_PIN
+//FIXME!!!#ifndef IMC_SYNC_PIN
+//#error "Please select a motherboard for which IMC_SYNC_PIN is defined"
+//#endif	// IMC_SYNC_PIN
+#define IMC_SYNC_PIN  18
 
 // initializes i2c
 uint8_t imc_init(void);

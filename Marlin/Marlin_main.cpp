@@ -825,7 +825,17 @@ static void axis_is_at_home(int axis) {
     }
   }
 #endif
+#ifdef IMC_ENABLED
+  // IMC's homing routine winds up a little ways away from home, so we need to add that offset.
+  int32_t axispos = 0;
+  if(0 == imc_send_get_param_one(axis, IMC_PARAM_LOCATION, (uint32_t*)&axispos))
+	current_position[axis] = base_home_pos(axis) + add_homeing[axis] + (float)axispos / axis_steps_per_unit[axis];
+  else
+	current_position[axis] = base_home_pos(axis) + add_homeing[axis];
+#else
   current_position[axis] = base_home_pos(axis) + add_homeing[axis];
+#endif
+
   min_pos[axis] =          base_min_pos(axis) + add_homeing[axis];
   max_pos[axis] =          base_max_pos(axis) + add_homeing[axis];
 }
@@ -2204,9 +2214,9 @@ void process_commands()
 
       SERIAL_PROTOCOLPGM(MSG_COUNT_X);
       SERIAL_PROTOCOL(float(st_get_position(X_AXIS))/axis_steps_per_unit[X_AXIS]);
-      SERIAL_PROTOCOLPGM("Y:");
+      SERIAL_PROTOCOLPGM(MSG_COUNT_Y);
       SERIAL_PROTOCOL(float(st_get_position(Y_AXIS))/axis_steps_per_unit[Y_AXIS]);
-      SERIAL_PROTOCOLPGM("Z:");
+      SERIAL_PROTOCOLPGM(MSG_COUNT_Z);
       SERIAL_PROTOCOL(float(st_get_position(Z_AXIS))/axis_steps_per_unit[Z_AXIS]);
 
       SERIAL_PROTOCOLLN("");
