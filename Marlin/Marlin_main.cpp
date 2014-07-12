@@ -827,11 +827,7 @@ static void axis_is_at_home(int axis) {
 #endif
 #ifdef IMC_ENABLED
   // IMC's homing routine winds up a little ways away from home, so we need to add that offset.
-  int32_t axispos = 0;
-  if(0 == imc_send_get_param_one(axis, IMC_PARAM_LOCATION, (uint32_t*)&axispos))
-	current_position[axis] = base_home_pos(axis) + add_homeing[axis] + (float)axispos / axis_steps_per_unit[axis];
-  else
-	current_position[axis] = base_home_pos(axis) + add_homeing[axis];
+	current_position[axis] = base_home_pos(axis) + add_homeing[axis] + (float)st_get_position(axis) / axis_steps_per_unit[axis];
 #else
   current_position[axis] = base_home_pos(axis) + add_homeing[axis];
 #endif
@@ -1409,7 +1405,7 @@ void process_commands()
     case 29: // G29 Detailed Z-Probe, probes the bed at 3 points.
         {
             #if Z_MIN_PIN == -1
-            #error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!!! Z_MIN_PIN must point to a valid hardware pin."
+            #error "You must have a Z_MIN endstop in order to enable Auto Bed Leveling feature!! Z_MIN_PIN must point to a valid hardware pin."
             #endif
 
             st_synchronize();

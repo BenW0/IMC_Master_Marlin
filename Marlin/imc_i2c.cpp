@@ -35,8 +35,13 @@
 
 // Queue Balancer shaping constants
 // if the slave queue is less than IMC_QUQUE_LOW_THRESH blocks, extra blocks are taken off the planner queue to prevent buffer underrun.
-#define IMC_QUEUE_LOW_THRESH      8
+#define IMC_QUEUE_LOW_THRESH      5
 
+// delay starting a print by X milliseconds to give the planner time to plan moves (so we don't just dump them all to the
+// slaves immediately) unless the planner fills up first. The counter resets whenever the queue is empty.
+#define IMC_PRINTSTART_DELAY      1000
+// ms since the last new queued move before we guess the print is "done" and restart the printstart counter.
+#define IMC_PRINTEND_DELAY        1000
 
 // Global Variables===================================================================
 const imc_param_type imc_param_types[IMC_PARAM_COUNT] = IMC_PARAM_TYPES;
@@ -54,6 +59,9 @@ typedef struct { uint8_t planner; uint8_t slave; uint8_t pushing;} dqh_t;
 dqh_t debug_queue_history[128];
 uint8_t debug_queue_index = 0;
 #endif
+bool in_print = false;          // flag signaling we are in a continuous stream of moves.
+unsigned long printstart_time = 0;   // time that the first move queue came in.
+unsigned long printend_time = 0;    // time that we last saw a new queued move
 
 // Local Function Predeclares ========================================================
 uint16_t imc_push_blocks(uint16_t blocks_to_push);
@@ -88,6 +96,8 @@ uint8_t imc_init(void)
 	// configure the sync line to keep motion from happening until we're ready.
 	imc_sync_set();
   moves_queued_guess = 0;
+  in_print = false;
+  printstart_time = printend_time = 0;
 
 
 	// Query each of the slaves here and get queue depth, presence information
@@ -355,7 +365,17 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
   if(NULL != queued_moves)
     *queued_moves = max_queue;
   if(NULL != queue_disagreement && 0xffff != min_queue)
+  {
     *queue_disagreement = (max_queue != min_queue);
+    if(max_queue != min_queue)
+    {
+      //||\\!! Debug code
+      SERIAL_ECHO("Max Queue Depth: ");
+      SERIAL_ECHO((int)max_queue);
+      SERIAL_ECHO(" Min Queue Depth: ");
+      SERIAL_ECHOLN((int)min_queue);
+    }
+  }
   moves_queued_guess = max_queue;
   return ret;
 }
@@ -460,8 +480,42 @@ imc_return_type imc_balance_queues(void)
   // Quit if master has no queued moves.
   planner_blocks = movesplanned();
   if(0 == planner_blocks)
+  {
+    // check to see if we've "finished" a build --> it's been > IMC_PRINTEND_DELAY ms since the 
+    // last time we saw a queued move.
+    if(in_print)
+    {
+      // is this the first time we've hit 0 moves planned?
+      if(0 == printend_time)
+        printend_time = millis();
+      // have we timed out?
+      if(millis() - printend_time > IMC_PRINTEND_DELAY)
+      {
+        in_print = false;
+        printstart_time = 0;
+      }
+    }
     return IMC_RET_SUCCESS;
-	
+  }
+
+  // are we just starting a print?
+  if(!in_print)
+  {
+    // is the buffer full? If so, start the print.
+    if(BLOCK_BUFFER_SIZE == planner_blocks)
+      in_print = true;
+    else if(0 == printstart_time)// is this the first move we've seen? If so, don't push yet...
+    {
+      printstart_time = millis();
+      return IMC_RET_SUCCESS;
+    }
+    // have we not waited long enough? If so, keep waiting.
+    if(millis() - printstart_time < IMC_PRINTSTART_DELAY)
+      return IMC_RET_SUCCESS;
+    else    // start the move
+      in_print = true;
+  }
+	printend_time = 0;    // print is definitely not ended.
 
   // first, get the number of blocks in the slave queue
   ret = imc_check_status(NULL, &slave_blocks, &slave_out_of_sync);
@@ -501,20 +555,25 @@ imc_return_type imc_balance_queues(void)
   if(slave_blocks < IMC_QUEUE_LOW_THRESH)
   {
     // push blocks to the slave as fast as possible!
+    //SERIAL_ECHOPAIR("push_blocks: ", (long unsigned int)min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks));
+    //SERIAL_ECHOPAIR("slave_blocks: ", (long unsigned int)slave_blocks);
     moves_queued_guess += imc_push_blocks(min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks));
     
   }
   else
   {
-    // balance the blocks evenly
-    total_blocks = planner_blocks + slave_blocks;
-    if(planner_blocks > total_blocks / 2)
-    {
-      if(slave_blocks + (planner_blocks - total_blocks/2) < imc_queue_depth)
-        moves_queued_guess += imc_push_blocks(planner_blocks - total_blocks / 2);
-      else
-        moves_queued_guess += imc_push_blocks(imc_queue_depth - slave_blocks);
-    }
+    // DISABLED: balance the blocks evenly.
+    //total_blocks = planner_blocks + slave_blocks;
+    //if(planner_blocks > total_blocks / 2)
+    //{
+    //  if(slave_blocks + (planner_blocks - total_blocks/2) < imc_queue_depth)
+    //    moves_queued_guess += imc_push_blocks(planner_blocks - total_blocks / 2);
+    //  else
+    //    moves_queued_guess += imc_push_blocks(imc_queue_depth - slave_blocks);
+    //}
+    // Move just one block, only if the planner has at least IMC_QUEUE_LOW_THRESH
+    if(planner_blocks > IMC_QUEUE_LOW_THRESH)
+      moves_queued_guess += imc_push_blocks(1);
   }
 
   // if there are blocks to be moved now but were't before, start the movement
@@ -542,7 +601,7 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
 
   msg_queue_move_t move_data[IMC_MAX_MOTORS];
 
-#if IMC_DEBUG_MODE >= 4
+#if IMC_DEBUG_MODE >= 5
   SERIAL_ECHOPGM("In Push. Planner: ");
   SERIAL_ECHO((int)movesplanned());
   SERIAL_ECHOPGM(" Slaves: ");
@@ -577,7 +636,7 @@ uint16_t imc_push_blocks(uint16_t blocks_to_push)
       for(uint8_t k = 0; k < IMC_MAX_MOTORS; k++)
       {
         // the IMC motor controllers work in steps/min or steps/min^2
-        move_data[k].acceleration = current_block->acceleration_st;   // steps/min^2
+        move_data[k].acceleration = current_block->acceleration_st * 3600;   // steps/min^2
         move_data[k].final_rate = current_block->final_rate*60;               // steps/min
         move_data[k].initial_rate = current_block->initial_rate*60;         // steps/min
         move_data[k].nominal_rate = current_block->nominal_rate*60;         // steps/min
@@ -706,6 +765,10 @@ imc_return_type imc_drain_queues(void)
 
   // now there are no queued moves; wait for the sync line to go high.
   delay(20);
+
+  in_print = false;     // signal we're definitely not in the middle of a print (if we hit 0 queued moves in balance_queues() and we're in the middle of a print, we need to send new moves asap!)
+  printstart_time = 0;
+  printend_time = millis();
 
   // wait for a while...
   for(uint16_t i = 0; i < 1000; i++)
