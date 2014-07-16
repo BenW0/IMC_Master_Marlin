@@ -27,8 +27,8 @@ uint8_t imc_init(void);
 
 // slave/motor status queries
 bool imc_is_slave_connected(uint8_t motor_id);
-imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS] = NULL, 
-      uint16_t *queued_moves = NULL, bool *queue_disagreement = NULL);
+imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], 
+  uint16_t *queued_moves_min, uint16_t *queued_moves_max, bool *queue_disagreement);
 imc_return_type imc_turn_motor_off(uint8_t motor_id);
 imc_return_type imc_turn_motor_on(uint8_t motor_id);
 

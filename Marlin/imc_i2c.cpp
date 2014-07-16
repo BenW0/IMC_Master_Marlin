@@ -305,6 +305,9 @@ uint8_t imc_init(void)
           ret = imc_send_init_one(i, &params, &resp, 5);
 	}  
 
+  SERIAL_ECHOPGM("Min Queue Depth: ");
+  SERIAL_ECHOLN(imc_queue_depth);
+
 	return num_worked;
 		
 }
@@ -332,15 +335,12 @@ bool imc_is_slave_connected(uint8_t motor_id)
 //   queued_moves - set by the function to the maximum number of queued moves. Set to NULL to ignore.
 //   queue_disagreement - set by the function to True if some slaves report a different number of queued moves. This might happen if the query
 //       just spans a move transition. Set to NULL to ignore.
-imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uint16_t *queued_moves, bool *queue_disagreement)
+imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uint16_t *queued_moves_min, uint16_t *queued_moves_max, bool *queue_disagreement)
 {
   imc_return_type ret = IMC_RET_SUCCESS;
   rsp_status_t rsp;
   uint16_t min_queue = 0xffff, max_queue = 0;
-  
-  if(NULL != queued_moves)
-    *queued_moves = 0;
-  
+    
 
 #if IMC_DEBUG_MODE >= 10
   SERIAL_ECHOLN("IMC In Check Status");
@@ -362,19 +362,13 @@ imc_return_type imc_check_status(imc_axis_error axis_errors[IMC_MAX_MOTORS], uin
     else if(NULL != axis_errors)
       axis_errors[i] = IMC_ERR_NONE;
   }
-  if(NULL != queued_moves)
-    *queued_moves = max_queue;
+  if(NULL != queued_moves_min)
+    *queued_moves_min = min_queue;
+  if(NULL != queued_moves_max)
+    *queued_moves_max = max_queue;
   if(NULL != queue_disagreement && 0xffff != min_queue)
   {
     *queue_disagreement = (max_queue != min_queue);
-    if(max_queue != min_queue)
-    {
-      //||\\!! Debug code
-      SERIAL_ECHO("Max Queue Depth: ");
-      SERIAL_ECHO((int)max_queue);
-      SERIAL_ECHO(" Min Queue Depth: ");
-      SERIAL_ECHOLN((int)min_queue);
-    }
   }
   moves_queued_guess = max_queue;
   return ret;
@@ -467,9 +461,10 @@ bool imc_sync_check()
 // Returns: 0 = success, >0 = error
 imc_return_type imc_balance_queues(void)
 {
-  uint16_t slave_blocks = 0;
+  uint16_t slave_blocks_min = 0, slave_blocks_max = 0;
   uint16_t planner_blocks = 0;
   uint16_t total_blocks;
+  static uint16_t slave_out_of_sync_counter = 0;     // incremented each successive out of sync call. 
   bool slave_out_of_sync = false;
   imc_return_type ret = IMC_RET_SUCCESS;
   
@@ -503,27 +498,37 @@ imc_return_type imc_balance_queues(void)
   {
     // is the buffer full? If so, start the print.
     if(BLOCK_BUFFER_SIZE == planner_blocks)
+    {
+      //SERIAL_ECHOLN("Starting print on full buffer.\n");
       in_print = true;
+    }
     else if(0 == printstart_time)// is this the first move we've seen? If so, don't push yet...
     {
       printstart_time = millis();
+      //SERIAL_ECHOPAIR("printstart_time = 0. millis = ", printstart_time);
       return IMC_RET_SUCCESS;
     }
-    // have we not waited long enough? If so, keep waiting.
-    if(millis() - printstart_time < IMC_PRINTSTART_DELAY)
+    else if(millis() - printstart_time < IMC_PRINTSTART_DELAY)  // have we not waited long enough? If so, keep waiting.
+    {
+      //SERIAL_ECHOPAIR("still waiting. millis = ", millis());
       return IMC_RET_SUCCESS;
+    }
     else    // start the move
+    {
+      //SERIAL_ECHOLN("Starting print on timeout.\n");
       in_print = true;
+    }
   }
 	printend_time = 0;    // print is definitely not ended.
 
-  // first, get the number of blocks in the slave queue
-  ret = imc_check_status(NULL, &slave_blocks, &slave_out_of_sync);
+  // first, get the number of blocks in the slave queue. It is pretty common for slaves to be out of sync
+  // right at a move boundary; we will ignore it unless it happens repeatedly.
+  ret = imc_check_status(NULL, &slave_blocks_min, &slave_blocks_max, &slave_out_of_sync);
   if(ret)   // error state!
   {
     // check for more errors and report to console.
     imc_axis_error errs[IMC_MAX_MOTORS];
-    imc_check_status(errs);
+    imc_check_status(errs, NULL, NULL, NULL);
     SERIAL_ERROR_START;
     SERIAL_ERRORPGM("IMC Error! ");
     SERIAL_ERRORLN(ret);
@@ -536,28 +541,39 @@ imc_return_type imc_balance_queues(void)
     SERIAL_ERRORLN("");
     return ret;
   }
-#if IMC_DEBUG_MODE > 0
   if(slave_out_of_sync)
   {
-    SERIAL_ECHO_START;
-    SERIAL_ECHOLNPGM("Slaves out of sync!");
-  }
+    slave_out_of_sync_counter++;
+#if IMC_DEBUG_MODE > 3
+    if(slave_out_of_sync_counter > 5)
+    {
+      SERIAL_ECHO_START;
+      SERIAL_ECHOLNPGM("Slaves out of sync for 5 updates");
+      SERIAL_ECHO("Max Queue Depth: ");
+      SERIAL_ECHO((int)slave_blocks_max);
+      SERIAL_ECHO(" Min Queue Depth: ");
+      SERIAL_ECHOLN((int)slave_blocks_min);
+    }
 #endif
-  moves_queued_guess = slave_blocks;
+  }
+  else
+    slave_out_of_sync_counter = 0;
+  moves_queued_guess = slave_blocks_max;
 
 
 
   // if we have no moves presently planned, set the sync pin so slaves don't start when we queue new moves.
-  if(slave_blocks == 0)
+  if(slave_blocks_max == 0)
     imc_sync_set();
 
   // is the slave buffer near empty?
-  if(slave_blocks < IMC_QUEUE_LOW_THRESH)
+  if(slave_blocks_min < IMC_QUEUE_LOW_THRESH)
   {
     // push blocks to the slave as fast as possible!
-    //SERIAL_ECHOPAIR("push_blocks: ", (long unsigned int)min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks));
     //SERIAL_ECHOPAIR("slave_blocks: ", (long unsigned int)slave_blocks);
-    moves_queued_guess += imc_push_blocks(min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks));
+    //SERIAL_ECHOPAIR("planner_blocks: ", (long unsigned int)planner_blocks);
+    //SERIAL_ECHOPAIR("push_blocks: ", (long unsigned int)min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks));
+    moves_queued_guess += imc_push_blocks(min(planner_blocks, IMC_QUEUE_LOW_THRESH - slave_blocks_min));
     
   }
   else
@@ -571,13 +587,14 @@ imc_return_type imc_balance_queues(void)
     //  else
     //    moves_queued_guess += imc_push_blocks(imc_queue_depth - slave_blocks);
     //}
-    // Move just one block, only if the planner has at least IMC_QUEUE_LOW_THRESH
-    if(planner_blocks > IMC_QUEUE_LOW_THRESH)
+    // Move just one block, only if the planner has at least IMC_QUEUE_LOW_THRESH, we won't overflow the slave queue,
+    // and the slaves are in sync.
+    if(planner_blocks > IMC_QUEUE_LOW_THRESH && slave_blocks_max < imc_queue_depth && !slave_out_of_sync)
       moves_queued_guess += imc_push_blocks(1);
   }
 
   // if there are blocks to be moved now but were't before, start the movement
-  if(moves_queued_guess > 0 && 0 == slave_blocks)
+  if(moves_queued_guess > 0 && 0 == slave_blocks_max)
     imc_sync_release();
     
 }
@@ -721,7 +738,7 @@ imc_return_type imc_drain_queues(void)
   {
     if(moves_queued_guess)
     {
-      ret = imc_check_status(NULL, &queued_moves, NULL);
+      ret = imc_check_status(NULL, NULL, &queued_moves, NULL);
       if(!ret)    // continue only if no errors
 	    {
         if(0 == queued_moves)
@@ -743,13 +760,15 @@ imc_return_type imc_drain_queues(void)
 	//}
   }
 
+  in_print = true;
+
   // make sure the sync line is released --> slaves can move
   imc_sync_release();
 
   // idle waiting for queues to empty.
   while(queued_moves || movesplanned())
   {
-	  ret = imc_check_status(NULL, &queued_moves);
+	  ret = imc_check_status(NULL, NULL, &queued_moves, NULL);
     if(ret)   // error condition
     {
       // stop further movement
@@ -1354,9 +1373,13 @@ imc_return_type do_txrx(uint8_t motor, imc_message_type msg_type, const uint8_t 
 
 			ret = (imc_return_type)(respcode-1);    // adjust for communication errors
 
-#if IMC_DEBUG_MODE >= 4
+#if IMC_DEBUG_MODE >= 2
       if(ret != IMC_RET_SUCCESS)
+      {
+        SERIAL_ECHOPAIR("Axis: ", (long unsigned int)motor);
         SERIAL_ECHOPAIR("Resp: ", (long unsigned int)respcode);
+        SERIAL_ECHOLN("");
+      }
 #endif
 
 			break;	// successful read. Finish loop.
