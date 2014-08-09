@@ -1,6 +1,12 @@
 ==========================
-Marlin 3D Printer Firmware
+Marlin 3D Printer Firmware - Intelligent Motor Controller
 ==========================
+
+This code was forked from the Marlin master branch (https://github.com/ErikZalm/Marlin) at commit adbf226, January 21, 2014. It has since been significantly modified (see Changes.md, in this folder) to interface with a network of IMC nodes instead of driving stepper drivers directly.
+
+Below is the original README.md file that comes with Marlin:
+
+
 Marlin has a GPL license because I believe in open development.
 Please do not use this code in products (3D printers, CNC etc) that are closed source or are crippled by a patent.
 

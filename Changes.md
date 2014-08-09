@@ -1,31 +1,30 @@
-# Changes needed to Marlin
+# Marlin_IMC makes substantial changes to the Marlin codebase to enable it to interface over I2C with a network of IMC nodes instead of driving stepper motors directly. The code that runs on an IMC node, as well as schematics, are available at <<<insert link to ME599 repo>>>.
 
-## Phase 1 - all motors are run on slave drivers
+# Summary of major changes to Marlin
 
-### Init
+## Init
 
-* <done>Scan to see which slaves are present; enable/disable motors accordingly
-* <done>Send Initialization packets to all motors; upload limit switch configuration information
-* <done>Find all the other places Wire.begin() is used (mostly panels) and figure out a way of making sure it's only called once.
+* Scan to see which slaves are present; enable/disable motors accordingly
+* Send Initialization packets to all motors; upload limit switch configuration information
 * FUTURE: Implement a timing sync routine that measures finish time spread on a move and adjusts clocks accordingly.
 
-### Parser
+## Parser
 
-* Implement custom M-codes to enable direct communication with the motor controllers
+* Implements custom M-codes (M450-M459) to enable direct communication with the motor controllers, primarily for debugging purposes
 
-### Planner
+## Planner
 
 * Moves get popped off the buffer by the I2C interface module; planner thinks the most recently sent move is "executing"
 
-### Motor Drivers
+## Motor Drivers
 
-* Disable
+* Disabled. All routines in stepper.cpp are replaced by links to the new functions in the I2C interface module.
 
-### Pinnout
+## Pinnout
 
-* Add constants for I2C and synchronization pins
+* Added constants for I2C and synchronization pins
 
-### I2C Interface
+## I2C Interface
 
 * Implement send/receive with slaves
 * Only talk with slaves we found during init (save bandwidth; timeouts)
@@ -37,29 +36,16 @@ Print Start:
 Idle Loop:
 * Query slaves' status, determine the slave with the fewest free queue spots, check for errors
 * Fire off that number of moves if we have them queued in the planner
-Print Pause:
-* **Look into this**
+FUTURE: Handle print pause
 
-### Homing
+## Homing
 
 * Change Marlin to send the homing packets to each axis
 
-### Jogging/Build Plate Levelling
+## Jogging/Build Plate Levelling
 
-* **Look into this**
+* Not yet modified.
 
-### Misc
+## Misc
 
-* Translate new constants in language.h into the various languages
-
-
-## Phase 2 - mix of local and remote motor drivers allowed
-
-### Init
-
-* Scan to see which slaves are present; enable/disable local motors accordingly.
-
-### Motor Drivers
-
-* Sync motor driver execution with bus execution (don't process next move until sync line goes hi)
-* Pull sync line low after starting a move
+* FUTURE: Translate new constants in language.h into the various languages
