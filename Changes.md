@@ -1,4 +1,5 @@
-Marlin_IMC makes substantial changes to the Marlin codebase to enable it to interface over I2C with a network of IMC nodes instead of driving stepper motors directly. The code that runs on an IMC node, as well as schematics, are available at <<<insert link to ME599 repo>>>.
+<<<<<<< HEAD
+Marlin_IMC makes substantial changes to the Marlin codebase to enable it to interface over I2C with a network of IMC nodes instead of driving stepper motors directly. The code that runs on an IMC node, as well as schematics, are available at https://github.com/BenW0/IMC-Axis-Simple
 
 Changes made by Matthew Sorensen and Ben Weiss, 2014.
 
