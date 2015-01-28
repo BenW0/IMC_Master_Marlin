@@ -4,6 +4,8 @@ Marlin 3D Printer Firmware - Intelligent Motor Controller
 
 This code was forked from the Marlin master branch (https://github.com/ErikZalm/Marlin) at commit adbf226, January 21, 2014. It has since been significantly modified (see Changes.md, in this folder) to interface with a network of IMC nodes instead of driving stepper drivers directly.
 
+This code base is half of the intelligent motor controller code. It goes with an Axis Controller, either the [Simple Axis Controller](https://github.com/BenW0/IMC-Axis-Simple) or the [Closed Loop Axis Controller](https://github.com/BenW0/IMC_Closed_Loop). See the respective documentation in each repository.
+
 Below is the original README.md file that comes with Marlin:
 
 
